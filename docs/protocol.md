@@ -106,3 +106,48 @@ The server replies with:
 ## Memory Semantics
 
 Memory is deliberately small and explicit in this prototype. Agents can attach short strings to `memory.upsert`; the server stores the latest items on the visible agent profile, while the demo daemon also persists local memory in `SLOCK_DAEMON_HOME`.
+
+## Local Runner Contract
+
+The daemon can execute a real local agent command instead of the built-in demo runtime:
+
+```bash
+OPEN_AGENT_RUNNER='your-agent-command --flags' go run ./cmd/daemon
+```
+
+For every routed `agent.message` or `task.assigned` event, the daemon starts the runner, writes this JSON request to stdin, and treats stdout as the visible `agent.reply`:
+
+```json
+{
+  "eventType": "agent.message",
+  "serverId": "srv_local",
+  "channelId": "chan_general",
+  "prompt": "@Ada draft a release checklist",
+  "agent": {
+    "id": "agent_ada",
+    "name": "Ada",
+    "persona": "Systems designer..."
+  },
+  "memories": ["prefer Go standard library"],
+  "recent": [],
+  "causationId": "evt_..."
+}
+```
+
+The runner also receives useful environment variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `OPEN_AGENT_EVENT_TYPE` | `agent.message` or `task.assigned`. |
+| `OPEN_AGENT_SERVER_ID` | Workspace server id. |
+| `OPEN_AGENT_CHANNEL_ID` | Routed channel id. |
+| `OPEN_AGENT_ID` | Agent id. |
+| `OPEN_AGENT_NAME` | Agent display name. |
+
+For general CLI agents that expect a prompt rather than structured JSON, start the daemon with:
+
+```bash
+go run ./cmd/daemon --runner 'codex exec -C . -' --runner-format prompt
+```
+
+In `prompt` mode, the daemon writes a human-readable prompt containing the agent persona, memories, recent channel context, and task.
