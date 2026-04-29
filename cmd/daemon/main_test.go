@@ -66,6 +66,8 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 		"Collaboration rule:",
 		"explicitly mention the other participant with @Name",
 		"under 8 lines",
+		"Use plain chat only during peer discussion",
+		"no Markdown headings",
 		"final Markdown document between these exact markers",
 		"<<<MARKDOWN_DOCUMENT>>>",
 		"<<<END_MARKDOWN_DOCUMENT>>>",

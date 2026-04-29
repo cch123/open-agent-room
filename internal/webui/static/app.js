@@ -218,6 +218,7 @@ function isMarkdownDocumentMessage(message) {
   if (message.authorKind !== "agent") return false;
   const text = message.text || "";
   if (text.includes(markdownDocumentStartMarker)) return true;
+  if (isPeerDiscussionMessage(message)) return false;
   if (text.length < 900) return false;
   const signals = [
     /^#{1,3}\s+/m,
@@ -229,6 +230,33 @@ function isMarkdownDocumentMessage(message) {
   ];
   const signalCount = signals.filter((pattern) => pattern.test(text)).length;
   return signalCount >= 2 || text.length > 1600;
+}
+
+function isPeerDiscussionMessage(message) {
+  if (message.authorKind !== "agent") return false;
+  const tokens = mentionTokens(message.text || "");
+  if (tokens.size === 0 || !state.snapshot) return false;
+  const authorID = (message.authorId || "").toLowerCase();
+  return (state.snapshot.agents || []).some((agent) => {
+    if ((agent.id || "").toLowerCase() === authorID) return false;
+    return tokens.has(agentMentionToken(agent.name)) || tokens.has(agentMentionToken(agent.id)) || tokens.has(agentShortIDToken(agent.id));
+  });
+}
+
+function mentionTokens(text) {
+  const tokens = new Set();
+  for (const match of text.matchAll(/@([a-z0-9][a-z0-9_-]{0,40})/gi)) {
+    tokens.add(match[1].toLowerCase());
+  }
+  return tokens;
+}
+
+function agentMentionToken(value = "") {
+  return value.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function agentShortIDToken(value = "") {
+  return agentMentionToken(value).replace(/^agent_/, "");
 }
 
 function markdownDocumentParts(message) {
