@@ -8,6 +8,7 @@ const state = {
     query: "",
     selected: 0,
   },
+  skillAgentId: "",
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
@@ -61,6 +62,13 @@ const els = {
   agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
   userDialog: document.querySelector("#user-dialog"),
   userName: document.querySelector("#user-name"),
+  skillDialog: document.querySelector("#skill-dialog"),
+  skillAgentName: document.querySelector("#skill-agent-name"),
+  skillList: document.querySelector("#skill-list"),
+  skillName: document.querySelector("#skill-name"),
+  skillSource: document.querySelector("#skill-source"),
+  skillFile: document.querySelector("#skill-file"),
+  skillContent: document.querySelector("#skill-content"),
   channelDialog: document.querySelector("#channel-dialog"),
   markdownDialog: document.querySelector("#markdown-dialog"),
   markdownDialogTitle: document.querySelector("#markdown-dialog-title"),
@@ -109,6 +117,7 @@ function render() {
   renderChannelSettings(current, agents);
   renderAssign(agents);
   renderEvents(events || []);
+  if (state.skillAgentId && els.skillDialog.open) renderSkillDialog();
 }
 
 function renderChannels(channels) {
@@ -169,12 +178,21 @@ function renderAgents(agents) {
     row.className = "agent-row";
     const button = document.createElement("button");
     button.className = "agent-item";
-    const meta = `${agent.status} · ${runtimeLabel(agent)} · ${agent.persona}`;
+    const skillCount = (agent.skills || []).length;
+    const skillMeta = skillCount ? ` · ${skillCount} skill${skillCount === 1 ? "" : "s"}` : "";
+    const meta = `${agent.status} · ${runtimeLabel(agent)}${skillMeta} · ${agent.persona}`;
     button.title = `${agent.name} - ${meta}`;
     button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
       insertMention(agent.name);
     });
+    const skillButton = document.createElement("button");
+    skillButton.type = "button";
+    skillButton.className = "item-action";
+    skillButton.title = `Import skill into ${agent.name}`;
+    skillButton.setAttribute("aria-label", `Import skill into ${agent.name}`);
+    skillButton.textContent = "+";
+    skillButton.addEventListener("click", () => openSkillDialog(agent));
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "item-delete";
@@ -182,7 +200,7 @@ function renderAgents(agents) {
     deleteButton.setAttribute("aria-label", `Delete agent ${agent.name}`);
     deleteButton.textContent = "x";
     deleteButton.addEventListener("click", () => deleteAgent(agent));
-    row.append(button, deleteButton);
+    row.append(button, skillButton, deleteButton);
     els.agentList.append(row);
   }
 }
@@ -745,6 +763,34 @@ document.querySelector("#user-create").addEventListener("click", async (event) =
   els.userDialog.close();
 });
 
+els.skillFile.addEventListener("change", async () => {
+  const file = els.skillFile.files?.[0];
+  if (!file) return;
+  els.skillSource.value = els.skillSource.value.trim() || file.name;
+  els.skillName.value = els.skillName.value.trim() || file.name.replace(/\.[^.]+$/, "");
+  els.skillContent.value = await file.text();
+});
+
+document.querySelector("#skill-import").addEventListener("click", async (event) => {
+  event.preventDefault();
+  const agentId = state.skillAgentId;
+  const name = els.skillName.value.trim();
+  const source = els.skillSource.value.trim();
+  const content = els.skillContent.value.trim();
+  if (!agentId || !name || !content) return;
+  await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
+    method: "POST",
+    body: JSON.stringify({ name, source, content }),
+  });
+  state.snapshot = await api("/api/state");
+  render();
+  els.skillName.value = "";
+  els.skillSource.value = "";
+  els.skillFile.value = "";
+  els.skillContent.value = "";
+  renderSkillDialog();
+});
+
 document.querySelector("#channel-create").addEventListener("click", async (event) => {
   event.preventDefault();
   const name = document.querySelector("#channel-name").value.trim();
@@ -774,6 +820,63 @@ async function deleteAgent(agent) {
   if (!window.confirm(`Delete ${agent.name}? Existing messages from this agent stay in the channel history.`)) return;
   try {
     await api(`/api/agents/${encodeURIComponent(agent.id)}`, { method: "DELETE" });
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function openSkillDialog(agent) {
+  state.skillAgentId = agent.id;
+  els.skillName.value = "";
+  els.skillSource.value = "";
+  els.skillFile.value = "";
+  els.skillContent.value = "";
+  renderSkillDialog();
+  els.skillDialog.showModal();
+}
+
+function renderSkillDialog() {
+  const agent = currentSkillAgent();
+  els.skillAgentName.textContent = agent ? `${agent.name} · ${runtimeLabel(agent)}` : "";
+  els.skillList.innerHTML = "";
+  if (!agent) return;
+  const skills = agent.skills || [];
+  if (skills.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No imported skills yet.";
+    els.skillList.append(empty);
+    return;
+  }
+  for (const skill of skills) {
+    const row = document.createElement("div");
+    row.className = "skill-row";
+    const copy = document.createElement("div");
+    copy.className = "skill-copy";
+    copy.innerHTML = `<strong>${escapeHTML(skill.name)}</strong><span>${escapeHTML(skill.source || "manual import")} · ${skill.content ? `${skill.content.length} chars` : "empty"}</span>`;
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "item-delete visible";
+    deleteButton.title = `Delete skill ${skill.name}`;
+    deleteButton.setAttribute("aria-label", `Delete skill ${skill.name}`);
+    deleteButton.textContent = "x";
+    deleteButton.addEventListener("click", () => deleteAgentSkill(agent, skill));
+    row.append(copy, deleteButton);
+    els.skillList.append(row);
+  }
+}
+
+function currentSkillAgent() {
+  if (!state.snapshot || !state.skillAgentId) return null;
+  return (state.snapshot.agents || []).find((agent) => agent.id === state.skillAgentId) || null;
+}
+
+async function deleteAgentSkill(agent, skill) {
+  if (!window.confirm(`Delete skill ${skill.name} from ${agent.name}?`)) return;
+  try {
+    await api(`/api/agents/${encodeURIComponent(agent.id)}/skills/${encodeURIComponent(skill.id)}`, { method: "DELETE" });
+    state.snapshot = await api("/api/state");
+    render();
   } catch (error) {
     alert(error.message);
   }

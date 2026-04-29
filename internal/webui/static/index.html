@@ -147,6 +147,34 @@
       </form>
     </dialog>
 
+    <dialog id="skill-dialog" class="skill-dialog">
+      <form method="dialog" class="dialog-body">
+        <h2>Import Skill</h2>
+        <p id="skill-agent-name" class="muted"></p>
+        <div id="skill-list" class="skill-list"></div>
+        <label>
+          Skill name
+          <input id="skill-name" autocomplete="off" placeholder="Review discipline" />
+        </label>
+        <label>
+          Source
+          <input id="skill-source" autocomplete="off" placeholder="SKILL.md or internal note" />
+        </label>
+        <label>
+          Import file
+          <input id="skill-file" type="file" accept=".md,.txt,text/markdown,text/plain" />
+        </label>
+        <label>
+          Content
+          <textarea id="skill-content" rows="10" placeholder="Paste the skill instructions here."></textarea>
+        </label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="skill-import" value="default">Import</button>
+        </menu>
+      </form>
+    </dialog>
+
     <dialog id="channel-dialog">
       <form method="dialog" class="dialog-body">
         <h2>Create Channel</h2>

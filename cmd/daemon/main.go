@@ -430,6 +430,18 @@ func buildRunnerPrompt(request runnerRequest) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(request.Agent.Skills) > 0 {
+		b.WriteString("Imported skills for this agent:\n")
+		for _, skill := range request.Agent.Skills {
+			fmt.Fprintf(&b, "## %s", skill.Name)
+			if skill.Source != "" {
+				fmt.Fprintf(&b, " (%s)", skill.Source)
+			}
+			b.WriteString("\n")
+			b.WriteString(compact(skill.Content, 4000))
+			b.WriteString("\n\n")
+		}
+	}
 	if len(request.PeerAgents) > 0 {
 		b.WriteString("Other agents addressed in the same user message:\n")
 		for _, peer := range request.PeerAgents {
@@ -505,6 +517,9 @@ func buildReply(agent protocol.Agent, prompt string, memories []string, peerAgen
 	}
 	fmt.Fprintf(&b, "I received: %s\n\n", compact(prompt, 220))
 	b.WriteString("This fallback response was generated inside the daemon. If you expected a real local agent, start the daemon with `--runner auto` and check the selected CLI runtime.")
+	if len(agent.Skills) > 0 {
+		fmt.Fprintf(&b, "\nImported skills in scope: %d", len(agent.Skills))
+	}
 	if len(memories) > 0 {
 		latest := memories[len(memories)-1]
 		fmt.Fprintf(&b, "\nMemory in scope: %s", compact(latest, 160))

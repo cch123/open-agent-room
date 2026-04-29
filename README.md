@@ -12,6 +12,7 @@ This project does not reuse Slock branding, assets, private APIs, or source code
 - Local daemon bridge over WebSocket at `/daemon`.
 - JSON envelope protocol for messages, task assignment, presence, memory, and replies.
 - A Create Agent flow with per-agent runtime and model selection.
+- Per-agent skill import, stored with the agent and injected into that agent's runner context.
 - A local daemon that can run Codex CLI, Claude Code, or a deterministic demo runtime per agent.
 - A deterministic demo fallback for machines without a local agent CLI.
 - Single Go binary server with embedded frontend assets.
@@ -30,7 +31,7 @@ In another terminal, connect the daemon:
 go run ./cmd/daemon
 ```
 
-By default the daemon honors each agent's selected runtime. Create an agent in the sidebar, choose `Codex`, `Claude`, or `Demo fallback`, and optionally choose or type a model name. Existing seed agents default to Codex.
+By default the daemon honors each agent's selected runtime. Create an agent in the sidebar, choose `Codex`, `Claude`, or `Demo fallback`, and optionally choose or type a model name. Existing seed agents default to Codex. Use the per-agent skill import action in the agent roster to paste or load `.md`/`.txt` skill instructions; the daemon includes those skills only when that agent is invoked.
 
 Then mention an agent in chat, for example:
 

@@ -106,6 +106,38 @@ func TestDeleteUserRemovesMembershipButKeepsCurrentHuman(t *testing.T) {
 	}
 }
 
+func TestAddAndDeleteAgentSkill(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skill, err := st.AddAgentSkill("agent_ada", "Review Discipline", "SKILL.md", "Lead with defects.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := st.Snapshot()
+	var found bool
+	for _, agent := range snapshot.Agents {
+		if agent.ID == "agent_ada" && len(agent.Skills) == 1 && agent.Skills[0].ID == skill.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("imported skill %s was not stored on agent_ada", skill.ID)
+	}
+
+	if _, err := st.DeleteAgentSkill("agent_ada", skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot = st.Snapshot()
+	for _, agent := range snapshot.Agents {
+		if agent.ID == "agent_ada" && len(agent.Skills) != 0 {
+			t.Fatalf("deleted skill remained on agent_ada: %+v", agent.Skills)
+		}
+	}
+}
+
 func contains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

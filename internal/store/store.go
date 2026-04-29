@@ -11,6 +11,8 @@ import (
 	"github.com/xargin/open-agent-room/internal/protocol"
 )
 
+const maxAgentSkillContentBytes = 64 * 1024
+
 type Store struct {
 	mu    sync.RWMutex
 	path  string
@@ -306,6 +308,71 @@ func (s *Store) UpdateChannelDefaultAgent(channelID, agentID string) (protocol.C
 	return protocol.Channel{}, errors.New("channel not found")
 }
 
+func (s *Store) AddAgentSkill(agentID, name, source, content string) (protocol.AgentSkill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agentID = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(agentID), "@"))
+	name = strings.TrimSpace(name)
+	source = strings.TrimSpace(source)
+	content = strings.TrimSpace(content)
+	if name == "" {
+		return protocol.AgentSkill{}, errors.New("skill name is required")
+	}
+	if content == "" {
+		return protocol.AgentSkill{}, errors.New("skill content is required")
+	}
+	if len([]byte(content)) > maxAgentSkillContentBytes {
+		return protocol.AgentSkill{}, errors.New("skill content is too large")
+	}
+	skill := protocol.AgentSkill{
+		ID:        "skill_" + slugWithFallback(name, "skill"),
+		Name:      name,
+		Source:    source,
+		Content:   content,
+		CreatedAt: protocol.Now(),
+	}
+	for i := range s.state.Agents {
+		if !agentMatches(s.state.Agents[i], agentID) {
+			continue
+		}
+		for _, existing := range s.state.Agents[i].Skills {
+			if existing.ID == skill.ID {
+				skill.ID = protocol.NewID("skill")
+				break
+			}
+		}
+		s.state.Agents[i].Skills = append(s.state.Agents[i].Skills, skill)
+		s.touchLocked()
+		return skill, s.saveLocked()
+	}
+	return protocol.AgentSkill{}, errors.New("agent not found")
+}
+
+func (s *Store) DeleteAgentSkill(agentID, skillID string) (protocol.AgentSkill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agentID = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(agentID), "@"))
+	skillID = strings.ToLower(strings.TrimSpace(skillID))
+	if agentID == "" || skillID == "" {
+		return protocol.AgentSkill{}, errors.New("agent id and skill id are required")
+	}
+	for i := range s.state.Agents {
+		if !agentMatches(s.state.Agents[i], agentID) {
+			continue
+		}
+		for j, skill := range s.state.Agents[i].Skills {
+			if !skillMatches(skill, skillID) {
+				continue
+			}
+			s.state.Agents[i].Skills = append(s.state.Agents[i].Skills[:j], s.state.Agents[i].Skills[j+1:]...)
+			s.touchLocked()
+			return skill, s.saveLocked()
+		}
+		return protocol.AgentSkill{}, errors.New("skill not found")
+	}
+	return protocol.AgentSkill{}, errors.New("agent not found")
+}
+
 func (s *Store) UpsertDaemon(d protocol.Daemon) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -494,6 +561,10 @@ func agentMatches(agent protocol.Agent, id string) bool {
 
 func userMatches(user protocol.User, id string) bool {
 	return strings.ToLower(user.ID) == id || strings.ToLower(user.Name) == id || strings.TrimPrefix(strings.ToLower(user.ID), "usr_") == id
+}
+
+func skillMatches(skill protocol.AgentSkill, id string) bool {
+	return strings.ToLower(skill.ID) == id || strings.ToLower(skill.Name) == id || strings.TrimPrefix(strings.ToLower(skill.ID), "skill_") == id
 }
 
 func slug(value string) string {

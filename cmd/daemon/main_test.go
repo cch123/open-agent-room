@@ -79,6 +79,37 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 	}
 }
 
+func TestBuildRunnerPromptIncludesImportedSkills(t *testing.T) {
+	request := runnerRequest{
+		EventType: "agent.message",
+		ChannelID: "chan_general",
+		Prompt:    "review this",
+		Agent: protocol.Agent{
+			ID:   "agent_lin",
+			Name: "Lin",
+			Skills: []protocol.AgentSkill{
+				{
+					ID:      "skill_review",
+					Name:    "Review Discipline",
+					Source:  "SKILL.md",
+					Content: "Lead with defects, cite file and line, keep summary secondary.",
+				},
+			},
+		},
+	}
+
+	got := buildRunnerPrompt(request)
+	for _, want := range []string{
+		"Imported skills for this agent:",
+		"## Review Discipline (SKILL.md)",
+		"Lead with defects",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestDemoReplyMentionsPeerAgents(t *testing.T) {
 	got := buildReply(
 		protocol.Agent{ID: "agent_lin", Name: "Lin"},

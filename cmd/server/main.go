@@ -353,6 +353,18 @@ func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/agents/"), "/")
 	if r.Method == http.MethodDelete {
+		if agentID, skillID, ok := parseAgentSkillDeletePath(path); ok {
+			skill, err := a.store.DeleteAgentSkill(agentID, skillID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			env := protocol.NewEnvelope(a.store.ServerID(), "agent.skill.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]any{"agentId": agentID, "skill": skill}, "")
+			_ = a.store.AddEnvelope(env)
+			a.broadcast()
+			writeJSON(w, http.StatusOK, skill)
+			return
+		}
 		if path == "" || strings.Contains(path, "/") {
 			http.NotFound(w, r)
 			return
@@ -371,6 +383,27 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
+		return
+	}
+	if agentID, ok := parseAgentSkillPostPath(path); ok {
+		var req struct {
+			Name    string `json:"name"`
+			Source  string `json:"source"`
+			Content string `json:"content"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		skill, err := a.store.AddAgentSkill(agentID, req.Name, req.Source, req.Content)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		env := protocol.NewEnvelope(a.store.ServerID(), "agent.skill.imported", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]any{"agentId": agentID, "skill": skill}, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusCreated, skill)
 		return
 	}
 	if !strings.HasSuffix(path, "/assign") {
@@ -404,6 +437,20 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, msg)
+}
+
+func parseAgentSkillPostPath(path string) (string, bool) {
+	agentID, ok := strings.CutSuffix(path, "/skills")
+	agentID = strings.Trim(agentID, "/")
+	return agentID, ok && agentID != "" && !strings.Contains(agentID, "/")
+}
+
+func parseAgentSkillDeletePath(path string) (string, string, bool) {
+	parts := strings.Split(path, "/")
+	if len(parts) != 3 || parts[0] == "" || parts[1] != "skills" || parts[2] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[2], true
 }
 
 func (a *app) handleDaemon(w http.ResponseWriter, r *http.Request) {

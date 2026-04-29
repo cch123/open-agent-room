@@ -64,6 +64,14 @@ type MemoryItem struct {
 	CreatedAt string `json:"createdAt"`
 }
 
+type AgentSkill struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Source    string `json:"source,omitempty"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
 type Agent struct {
 	ID           string       `json:"id"`
 	Name         string       `json:"name"`
@@ -74,6 +82,7 @@ type Agent struct {
 	DaemonID     string       `json:"daemonId,omitempty"`
 	Capabilities []string     `json:"capabilities"`
 	Memory       []MemoryItem `json:"memory"`
+	Skills       []AgentSkill `json:"skills,omitempty"`
 	Color        string       `json:"color"`
 	LastSeen     string       `json:"lastSeen,omitempty"`
 }

@@ -206,6 +206,10 @@ button:focus-visible {
   align-items: start;
 }
 
+.agent-row {
+  grid-template-columns: minmax(0, 1fr) 28px 28px;
+}
+
 .nav-item,
 .human-item,
 .agent-item {
@@ -255,13 +259,39 @@ button:focus-visible {
   opacity: 0;
 }
 
+.item-action {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 9px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--accent);
+  opacity: 0;
+}
+
 .nav-row:hover .item-delete,
 .nav-row:focus-within .item-delete,
 .human-row:hover .item-delete,
 .human-row:focus-within .item-delete,
 .agent-row:hover .item-delete,
-.agent-row:focus-within .item-delete {
+.agent-row:focus-within .item-delete,
+.agent-row:hover .item-action,
+.agent-row:focus-within .item-action {
   opacity: 1;
+}
+
+.item-delete.visible {
+  opacity: 1;
+}
+
+.item-action:hover,
+.item-action:focus-visible {
+  background: var(--accent-soft);
+  border-color: rgba(49, 95, 122, 0.28);
+  color: var(--accent-strong);
 }
 
 .item-delete:hover,
@@ -773,6 +803,46 @@ dialog::backdrop {
   gap: 13px;
 }
 
+.skill-dialog {
+  width: min(560px, calc(100vw - 28px));
+}
+
+.skill-list {
+  display: grid;
+  gap: 6px;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.skill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfd;
+}
+
+.skill-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.skill-copy strong,
+.skill-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .dialog-body label {
   display: grid;
   gap: 6px;
@@ -1051,6 +1121,10 @@ menu button:first-child:hover {
     grid-template-columns: minmax(0, 1fr) 26px;
   }
 
+  .agent-row {
+    grid-template-columns: minmax(0, 1fr) 26px 26px;
+  }
+
   .nav-item,
   .human-item,
   .agent-item {
@@ -1061,6 +1135,7 @@ menu button:first-child:hover {
 
   .hash,
   .avatar,
+  .item-action,
   .item-delete {
     width: 24px;
     height: 24px;
