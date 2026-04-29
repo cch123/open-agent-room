@@ -109,10 +109,16 @@ Memory is deliberately small and explicit in this prototype. Agents can attach s
 
 ## Local Runner Contract
 
-The daemon can execute a real local agent command instead of the built-in demo runtime:
+The daemon executes a real local agent command. By default, `OPEN_AGENT_RUNNER=auto` detects Codex CLI and uses:
 
 ```bash
-OPEN_AGENT_RUNNER='your-agent-command --flags' go run ./cmd/daemon
+codex --ask-for-approval never --search exec -C . --sandbox workspace-write --color never --ephemeral -
+```
+
+Use `OPEN_AGENT_RUNNER=demo` to force the built-in fallback. Use a custom command when you want to connect another local agent:
+
+```bash
+OPEN_AGENT_RUNNER='your-agent-command --flags' OPEN_AGENT_RUNNER_FORMAT=json go run ./cmd/daemon
 ```
 
 For every routed `agent.message` or `task.assigned` event, the daemon starts the runner, writes this JSON request to stdin, and treats stdout as the visible `agent.reply`:
@@ -147,7 +153,7 @@ The runner also receives useful environment variables:
 For general CLI agents that expect a prompt rather than structured JSON, start the daemon with:
 
 ```bash
-go run ./cmd/daemon --runner 'codex exec -C . -' --runner-format prompt
+go run ./cmd/daemon --runner 'codex --ask-for-approval never --search exec -C . --sandbox workspace-write --color never --ephemeral -' --runner-format prompt
 ```
 
 In `prompt` mode, the daemon writes a human-readable prompt containing the agent persona, memories, recent channel context, and task.

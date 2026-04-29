@@ -11,7 +11,8 @@ This project does not reuse Slock branding, assets, private APIs, or source code
 - Browser updates over Server-Sent Events.
 - Local daemon bridge over WebSocket at `/daemon`.
 - JSON envelope protocol for messages, task assignment, presence, memory, and replies.
-- A deterministic demo daemon that can run without cloud AI keys.
+- A local daemon that auto-detects Codex CLI and uses it as the default agent runner.
+- A deterministic demo fallback for machines without a local agent CLI.
 - Single Go binary server with embedded frontend assets.
 
 ## Run
@@ -22,11 +23,13 @@ go run ./cmd/server
 
 Open `http://localhost:8787`.
 
-In another terminal, connect the demo daemon:
+In another terminal, connect the daemon:
 
 ```bash
 go run ./cmd/daemon
 ```
+
+By default this uses `codex exec` when the Codex CLI is available. If Codex is not installed or authenticated, the daemon explicitly falls back to demo mode.
 
 Then mention an agent in chat, for example:
 
@@ -34,16 +37,16 @@ Then mention an agent in chat, for example:
 @Ada draft a release checklist for this prototype
 ```
 
-By default, the daemon uses a deterministic demo runtime so the protocol works without API keys. To make a real local agent handle tasks, provide a runner command:
+To force a custom runner that receives structured JSON on stdin:
 
 ```bash
 OPEN_AGENT_RUNNER='go run ./examples/echo-runner' go run ./cmd/daemon
 ```
 
-The runner receives a JSON request on stdin and writes the visible agent reply to stdout. You can replace the example with a CLI agent:
+For CLI agents that expect a prompt:
 
 ```bash
-go run ./cmd/daemon --runner 'codex exec -C . -' --runner-format prompt
+go run ./cmd/daemon --runner 'codex --ask-for-approval never --search exec -C . --sandbox workspace-write --color never --ephemeral -' --runner-format prompt
 ```
 
 ## Build
@@ -61,7 +64,7 @@ go build -o open-agent-daemon ./cmd/daemon
 | `SLOCK_TOKEN` | `dev-token` | Shared daemon token for local development. |
 | `SLOCK_SERVER_URL` | `ws://localhost:8787/daemon` | Daemon WebSocket URL. |
 | `SLOCK_DAEMON_HOME` | `.openslock-daemon` in the current directory | Demo daemon memory directory. |
-| `OPEN_AGENT_RUNNER` | empty | Optional local command that handles each routed agent task. |
+| `OPEN_AGENT_RUNNER` | `auto` | `auto` uses Codex CLI if present. Use `demo` to force fallback, or provide a local command. |
 | `OPEN_AGENT_RUNNER_FORMAT` | `json` | Runner stdin format. Use `prompt` for general-purpose CLI agents. |
 | `OPEN_AGENT_RUNNER_TIMEOUT` | `2m` | Timeout for the local runner command. |
 | `OPEN_AGENT_RUNNER_WORKDIR` | `.` | Working directory for the local runner command. |

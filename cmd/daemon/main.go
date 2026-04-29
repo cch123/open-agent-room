@@ -54,7 +54,7 @@ func main() {
 	urlFlag := flag.String("url", defaultURL, "server websocket URL")
 	nameFlag := flag.String("name", defaultName, "daemon display name")
 	tokenFlag := flag.String("token", getenv("SLOCK_TOKEN", "dev-token"), "shared daemon token")
-	runnerFlag := flag.String("runner", getenv("OPEN_AGENT_RUNNER", ""), "optional local agent command; receives JSON on stdin and must write the reply to stdout")
+	runnerFlag := flag.String("runner", getenv("OPEN_AGENT_RUNNER", "auto"), "local agent command, auto, or demo")
 	runnerFormatFlag := flag.String("runner-format", getenv("OPEN_AGENT_RUNNER_FORMAT", "json"), "runner stdin format: json or prompt")
 	runnerTimeoutFlag := flag.Duration("runner-timeout", getenvDuration("OPEN_AGENT_RUNNER_TIMEOUT", 2*time.Minute), "local agent command timeout")
 	runnerWorkdirFlag := flag.String("runner-workdir", getenv("OPEN_AGENT_RUNNER_WORKDIR", "."), "working directory for the local agent command")
@@ -82,12 +82,15 @@ func main() {
 		runnerTimeout: *runnerTimeoutFlag,
 		runnerWorkdir: *runnerWorkdirFlag,
 	}
+	d.configureRunner()
 	if d.runnerFormat == "" {
 		d.runnerFormat = "json"
 	}
 	capabilities := []string{"memory", "task-runner"}
 	if d.runner == "" {
 		capabilities = append(capabilities, "demo-agent")
+	} else if strings.Contains(d.runner, "codex exec") {
+		capabilities = append(capabilities, "external-runner", "codex")
 	} else {
 		capabilities = append(capabilities, "external-runner")
 	}
@@ -244,11 +247,20 @@ func (d *daemon) runExternalAgent(request runnerRequest) (string, error) {
 	}
 	cmd.Stdin = &stdin
 
-	output, err := cmd.CombinedOutput()
-	text := strings.TrimSpace(string(output))
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	text := strings.TrimSpace(stdout.String())
+	errText := strings.TrimSpace(stderr.String())
 	if ctx.Err() == context.DeadlineExceeded {
 		if text != "" {
 			return "", fmt.Errorf("runner timed out after %s with output: %s", d.runnerTimeout, compact(text, 900))
+		}
+		if errText != "" {
+			return "", fmt.Errorf("runner timed out after %s with stderr: %s", d.runnerTimeout, compact(errText, 900))
 		}
 		return "", fmt.Errorf("runner timed out after %s", d.runnerTimeout)
 	}
@@ -256,12 +268,31 @@ func (d *daemon) runExternalAgent(request runnerRequest) (string, error) {
 		if text != "" {
 			return "", fmt.Errorf("%w: %s", err, compact(text, 900))
 		}
+		if errText != "" {
+			return "", fmt.Errorf("%w: %s", err, compact(errText, 900))
+		}
 		return "", err
 	}
 	if text == "" {
 		return "", fmt.Errorf("runner produced no stdout")
 	}
 	return text, nil
+}
+
+func (d *daemon) configureRunner() {
+	switch strings.ToLower(strings.TrimSpace(d.runner)) {
+	case "", "demo", "none", "off":
+		d.runner = ""
+	case "auto":
+		path, err := exec.LookPath("codex")
+		if err != nil {
+			d.runner = ""
+			d.runnerFormat = "json"
+			return
+		}
+		d.runner = fmt.Sprintf("%s --ask-for-approval never --search exec -C %s --sandbox workspace-write --color never --ephemeral -", shellQuote(path), shellQuote(d.runnerWorkdir))
+		d.runnerFormat = "prompt"
+	}
 }
 
 func buildRunnerPrompt(request runnerRequest) string {
@@ -326,17 +357,13 @@ func (d *daemon) ensureAgent(agentID string) {
 
 func buildReply(agent protocol.Agent, prompt string, memories []string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s here. I received the request and can take the next step.\n\n", agent.Name)
-	fmt.Fprintf(&b, "Working read: %s\n\n", compact(prompt, 220))
-	b.WriteString("Next action:\n")
-	b.WriteString("1. Identify the concrete deliverable.\n")
-	b.WriteString("2. Split it into the smallest useful task.\n")
-	b.WriteString("3. Send progress back through this same channel.\n")
+	fmt.Fprintf(&b, "%s is running in demo fallback mode.\n\n", agent.Name)
+	fmt.Fprintf(&b, "I received: %s\n\n", compact(prompt, 220))
+	b.WriteString("No real local agent command is configured on this daemon. Start the daemon with `--runner auto` or set `OPEN_AGENT_RUNNER` to a local CLI agent command.")
 	if len(memories) > 0 {
 		latest := memories[len(memories)-1]
 		fmt.Fprintf(&b, "\nMemory in scope: %s", compact(latest, 160))
 	}
-	b.WriteString("\n\nProtocol: handled by local daemon over `agent.message`/`task.assigned` -> `agent.reply`.")
 	return b.String()
 }
 
@@ -404,4 +431,11 @@ func getenvDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
