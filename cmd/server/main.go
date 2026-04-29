@@ -72,6 +72,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := st.ResetRuntimePresence(); err != nil {
+		log.Fatal(err)
+	}
 	a := &app{
 		store:   st,
 		hub:     realtime.NewHub(),

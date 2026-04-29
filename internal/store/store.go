@@ -55,6 +55,32 @@ func (s *Store) ServerID() string {
 	return s.state.Meta.ServerID
 }
 
+func (s *Store) ResetRuntimePresence() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	now := protocol.Now()
+	for i := range s.state.Daemons {
+		if s.state.Daemons[i].Status != "offline" {
+			s.state.Daemons[i].Status = "offline"
+			s.state.Daemons[i].LastSeen = now
+			changed = true
+		}
+	}
+	for i := range s.state.Agents {
+		if s.state.Agents[i].DaemonID != "" || s.state.Agents[i].Status == "thinking" || s.state.Agents[i].Status == "idle" || s.state.Agents[i].Status == "starting" {
+			s.state.Agents[i].DaemonID = ""
+			s.state.Agents[i].Status = "waiting"
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	s.touchLocked()
+	return s.saveLocked()
+}
+
 func (s *Store) AddEnvelope(env protocol.Envelope) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
