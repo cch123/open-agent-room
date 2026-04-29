@@ -27,6 +27,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 button,
@@ -52,15 +53,20 @@ button:hover {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(420px, 1fr) 360px;
+  grid-template-columns: minmax(240px, 17vw) minmax(360px, 1fr) minmax(300px, 24vw);
+  width: 100vw;
   height: 100vh;
-  min-height: 720px;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar,
 .inspector {
   background: #fbfcfe;
   border-right: 1px solid var(--line);
+  min-width: 0;
+  min-height: 0;
 }
 
 .sidebar {
@@ -259,6 +265,7 @@ button:hover {
   display: grid;
   grid-template-rows: auto 1fr auto;
   min-width: 0;
+  min-height: 0;
   background: var(--surface);
 }
 
@@ -266,15 +273,23 @@ button:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-width: 0;
   gap: 16px;
   padding: 18px 22px;
   border-bottom: 1px solid var(--line);
 }
 
+.room-header > div:first-child {
+  min-width: 0;
+}
+
 .room-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .default-agent-control {
@@ -305,6 +320,7 @@ h2 {
 
 h1 {
   font-size: 22px;
+  overflow-wrap: anywhere;
 }
 
 h2 {
@@ -328,6 +344,7 @@ h2 {
 }
 
 .messages {
+  min-height: 0;
   overflow: auto;
   padding: 18px 22px 28px;
 }
@@ -368,6 +385,7 @@ h2 {
   margin-top: 4px;
   white-space: pre-wrap;
   line-height: 1.46;
+  overflow-wrap: anywhere;
 }
 
 .markdown-card {
@@ -455,6 +473,10 @@ h2 {
   align-items: end;
 }
 
+.compose-row > button {
+  min-height: 44px;
+}
+
 .compose-input-wrap {
   position: relative;
   min-width: 0;
@@ -532,7 +554,17 @@ select {
   background: #fff;
   color: var(--text);
   padding: 10px;
+  min-width: 0;
+}
+
+textarea {
   resize: vertical;
+  max-height: 180px;
+}
+
+select {
+  min-height: 38px;
+  line-height: 1.2;
 }
 
 textarea:focus,
@@ -785,9 +817,23 @@ menu button:first-child {
   color: var(--text);
 }
 
+@media (max-width: 1280px) {
+  .app-shell {
+    grid-template-columns: 240px minmax(340px, 1fr) 300px;
+  }
+
+  .inspector {
+    padding: 14px;
+  }
+
+  .room-header {
+    padding: 16px 18px;
+  }
+}
+
 @media (max-width: 1080px) {
   .app-shell {
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: minmax(220px, 28vw) minmax(0, 1fr);
   }
 
   .inspector {
@@ -798,22 +844,116 @@ menu button:first-child {
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-    min-height: 100vh;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .sidebar {
-    max-height: 260px;
+    max-height: min(260px, 38dvh);
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .workspace-mark {
+    padding: 12px 14px 10px;
+  }
+
+  .section-header {
+    padding-top: 10px;
   }
 
   .conversation {
     min-height: 0;
   }
 
-  .compose-row {
+  .room-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+
+  .room-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .default-agent-control {
+    flex: 1 1 220px;
+  }
+
+  .messages {
+    padding: 14px 16px 22px;
+  }
+
+  .composer {
+    padding: 10px 12px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .markdown-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .markdown-dialog-shell {
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .runtime-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .sidebar {
+    max-height: min(220px, 36dvh);
+  }
+
+  .workspace-mark {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .workspace-mark strong,
+  .workspace-mark small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mark-grid {
+    grid-template-columns: repeat(2, 14px);
+    grid-auto-rows: 14px;
+    gap: 3px;
+  }
+
+  .nav-list,
+  .agent-list {
+    padding: 0 8px;
+  }
+
+  .nav-row,
+  .agent-row {
+    grid-template-columns: minmax(0, 1fr) 26px;
+  }
+
+  .nav-item,
+  .agent-item {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .hash,
+  .avatar,
+  .item-delete {
+    width: 24px;
+    height: 24px;
+  }
+
+  .item-delete {
+    margin-top: 8px;
   }
 
   .room-header,
@@ -822,7 +962,93 @@ menu button:first-child {
     flex-direction: column;
   }
 
-  .runtime-grid {
+  .default-agent-control {
+    flex: 0 0 auto;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .daemon-chip {
+    text-align: center;
+  }
+
+  .message {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .markdown-card {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .markdown-card-icon {
+    width: 36px;
+    height: 44px;
+  }
+
+  .markdown-card-action {
+    display: none;
+  }
+
+  .compose-row {
     grid-template-columns: 1fr;
+  }
+
+  .compose-row > button {
+    width: 100%;
+  }
+
+  .mention-suggestions {
+    max-height: min(220px, 44vh);
+  }
+
+  dialog {
+    width: calc(100vw - 16px);
+  }
+
+  .markdown-dialog-header {
+    padding: 14px;
+  }
+
+  .markdown-dialog-header h2 {
+    font-size: 16px;
+  }
+
+  .markdown-body {
+    padding: 16px 14px 22px;
+  }
+}
+
+@media (max-width: 420px) {
+  .sidebar {
+    max-height: min(200px, 34dvh);
+  }
+
+  .section-header {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .room-header {
+    padding: 12px;
+  }
+
+  .messages {
+    padding: 12px 12px 18px;
+  }
+
+  .composer {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .mention-row {
+    gap: 6px;
+  }
+
+  .mention-button {
+    padding: 6px 8px;
   }
 }
