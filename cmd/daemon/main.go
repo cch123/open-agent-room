@@ -210,6 +210,7 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 		AgentID:     agent.ID,
 		ChannelID:   channelID,
 		Text:        reply,
+		PeerAgents:  peerAgents,
 		ThreadDepth: threadDepth,
 	}, causationID)
 	if err := d.writeEnvelope(replyEnv); err != nil {

@@ -75,11 +75,13 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 7. New channels include the current agents as members and default to the workspace's first agent.
 8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants; the daemon prompt tells each runtime to explicitly `@` its peers.
 9. Agent replies that mention another agent are routed as the next agent-to-agent turn with `threadDepth + 1`, capped at 6 turns.
-10. `@You` is a terminal handoff marker for human review, not an agent route target.
-11. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
-12. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
-13. Agent replies are visible messages and also become protocol events in the inspector.
-14. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
+10. If a multi-agent reply forgets both `@peer` and `@You`, the server falls back to the reply payload's `peerAgents` so the discussion does not silently stop.
+11. When a daemon connects, the server backfills recent unhandled agent replies that mention another agent and have no matching routed `agent.message` causation.
+12. `@You` is a terminal handoff marker for human review, not an agent route target.
+13. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
+14. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
+15. Agent replies are visible messages and also become protocol events in the inspector.
+16. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
 
 ## Daemon Handshake
 

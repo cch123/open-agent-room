@@ -18,6 +18,7 @@ import (
 )
 
 const maxAgentThreadDepth = 6
+const agentMentionBackfillLimit = 30
 
 type app struct {
 	store        *store.Store
@@ -413,6 +414,7 @@ func (a *app) handleDaemon(w http.ResponseWriter, r *http.Request) {
 	for _, agent := range a.store.Snapshot().Agents {
 		a.spawnAgentOnClient(client, agent)
 	}
+	go a.routeRecentUnhandledAgentMentions(agentMentionBackfillLimit)
 
 	for {
 		var env protocol.Envelope
@@ -576,6 +578,131 @@ func routeTargetsFromAgentReply(text, authorAgentID string, agents []protocol.Ag
 		seen[agentID] = true
 	}
 	return targets
+}
+
+func routeTargetsForReplyPayload(payload protocol.AgentReplyPayload, authorAgentID string, agents []protocol.Agent) []string {
+	targets := routeTargetsFromAgentReply(payload.Text, authorAgentID, agents)
+	if len(targets) > 0 || mentionsCurrentUser(payload.Text) {
+		return targets
+	}
+	seen := make(map[string]bool)
+	for _, peer := range payload.PeerAgents {
+		if peer.ID == "" || peer.ID == authorAgentID || seen[peer.ID] {
+			continue
+		}
+		if _, ok := findAgentByID(agents, peer.ID); !ok {
+			continue
+		}
+		targets = append(targets, peer.ID)
+		seen[peer.ID] = true
+	}
+	return targets
+}
+
+func mentionsCurrentUser(text string) bool {
+	return strings.Contains(strings.ToLower(text), "@you")
+}
+
+func findAgentByID(agents []protocol.Agent, agentID string) (protocol.Agent, bool) {
+	for _, agent := range agents {
+		if agent.ID == agentID {
+			return agent, true
+		}
+	}
+	return protocol.Agent{}, false
+}
+
+type agentMentionRoute struct {
+	Channel     protocol.Channel
+	Message     protocol.Message
+	TargetIDs   []string
+	PeerPool    []protocol.Agent
+	CausationID string
+	ThreadDepth int
+}
+
+func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []agentMentionRoute {
+	if limit <= 0 || len(snapshot.Messages) == 0 {
+		return nil
+	}
+
+	handledReplies := make(map[string]bool)
+	replyDepths := make(map[string]int)
+	for _, env := range snapshot.Events {
+		if env.Type == "agent.message" && env.Trace.CausationID != "" {
+			handledReplies[env.Trace.CausationID] = true
+			continue
+		}
+		if env.Type == "agent.reply" {
+			payload, err := protocol.DecodePayload[protocol.AgentReplyPayload](env)
+			if err == nil {
+				replyDepths[env.ID] = payload.ThreadDepth
+			}
+		}
+	}
+
+	channels := make(map[string]protocol.Channel, len(snapshot.Channels))
+	for _, ch := range snapshot.Channels {
+		channels[ch.ID] = ch
+	}
+	agents := make(map[string]protocol.Agent, len(snapshot.Agents))
+	for _, agent := range snapshot.Agents {
+		agents[agent.ID] = agent
+	}
+
+	start := len(snapshot.Messages) - limit
+	if start < 0 {
+		start = 0
+	}
+
+	var routes []agentMentionRoute
+	for _, msg := range snapshot.Messages[start:] {
+		if msg.AuthorKind != "agent" || msg.ProtocolID == "" || handledReplies[msg.ProtocolID] {
+			continue
+		}
+		threadDepth := replyDepths[msg.ProtocolID]
+		if threadDepth >= maxAgentThreadDepth {
+			continue
+		}
+		author, ok := agents[msg.AuthorID]
+		if !ok {
+			continue
+		}
+		mentionedTargetIDs := routeTargetsFromAgentReply(msg.Text, author.ID, snapshot.Agents)
+		if len(mentionedTargetIDs) == 0 {
+			continue
+		}
+		targetAgents := make([]protocol.Agent, 0, len(mentionedTargetIDs))
+		targetIDs := make([]string, 0, len(mentionedTargetIDs))
+		for _, targetID := range mentionedTargetIDs {
+			if target, ok := agents[targetID]; ok {
+				targetAgents = append(targetAgents, target)
+				targetIDs = append(targetIDs, target.ID)
+			}
+		}
+		if len(targetAgents) == 0 {
+			continue
+		}
+		ch, ok := channels[msg.ChannelID]
+		if !ok {
+			continue
+		}
+		routes = append(routes, agentMentionRoute{
+			Channel:     ch,
+			Message:     msg,
+			TargetIDs:   append([]string(nil), targetIDs...),
+			PeerPool:    mergeAgents([]protocol.Agent{author}, targetAgents),
+			CausationID: msg.ProtocolID,
+			ThreadDepth: threadDepth + 1,
+		})
+	}
+	return routes
+}
+
+func (a *app) routeRecentUnhandledAgentMentions(limit int) {
+	for _, route := range recentUnhandledAgentMentionRoutes(a.store.Snapshot(), limit) {
+		a.routeAgentMessagesWithContext(route.Channel, route.Message, route.TargetIDs, route.PeerPool, route.CausationID, route.ThreadDepth)
+	}
 }
 
 func defaultAgentForChannel(ch protocol.Channel, agents []protocol.Agent) (string, bool) {
@@ -746,7 +873,7 @@ func (a *app) routeAgentReplyMentions(author protocol.Agent, msg protocol.Messag
 		return
 	}
 	snapshot := a.store.Snapshot()
-	targetIDs := routeTargetsFromAgentReply(payload.Text, author.ID, snapshot.Agents)
+	targetIDs := routeTargetsForReplyPayload(payload, author.ID, snapshot.Agents)
 	if len(targetIDs) == 0 {
 		return
 	}

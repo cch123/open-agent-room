@@ -142,6 +142,7 @@ type AgentReplyPayload struct {
 	ChannelID   string   `json:"channelId"`
 	Text        string   `json:"text"`
 	Memory      []string `json:"memory,omitempty"`
+	PeerAgents  []Agent  `json:"peerAgents,omitempty"`
 	ThreadDepth int      `json:"threadDepth,omitempty"`
 }
 

@@ -130,6 +130,45 @@ func TestRouteTargetsFromAgentReplyIgnoresHumanAndSelfMentions(t *testing.T) {
 	}
 }
 
+func TestRouteTargetsForReplyPayloadFallsBackToPeersUnlessHandedToHuman(t *testing.T) {
+	agents := []protocol.Agent{
+		{ID: "agent_lin", Name: "Lin"},
+		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+	}
+
+	got := routeTargetsForReplyPayload(protocol.AgentReplyPayload{
+		Text:       "I agree with this direction.",
+		PeerAgents: []protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
+	}, "agent_lin", agents)
+	if !reflect.DeepEqual(got, []string{"agent_claudelocal"}) {
+		t.Fatalf("peer fallback targets = %v", got)
+	}
+
+	got = routeTargetsForReplyPayload(protocol.AgentReplyPayload{
+		Text:       "@You final summary is ready.",
+		PeerAgents: []protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
+	}, "agent_lin", agents)
+	if len(got) != 0 {
+		t.Fatalf("human handoff should not route to peers, got %v", got)
+	}
+}
+
+func TestRouteTargetsForReplyPayloadPrefersExplicitMentions(t *testing.T) {
+	agents := []protocol.Agent{
+		{ID: "agent_ada", Name: "Ada"},
+		{ID: "agent_lin", Name: "Lin"},
+		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+	}
+
+	got := routeTargetsForReplyPayload(protocol.AgentReplyPayload{
+		Text:       "@Ada can you review this?",
+		PeerAgents: []protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
+	}, "agent_lin", agents)
+	if !reflect.DeepEqual(got, []string{"agent_ada"}) {
+		t.Fatalf("explicit targets = %v", got)
+	}
+}
+
 func TestMergeAgentsKeepsFirstOccurrenceOrder(t *testing.T) {
 	got := mergeAgents(
 		[]protocol.Agent{{ID: "agent_lin", Name: "Lin"}, {ID: "agent_ada", Name: "Ada"}},
@@ -142,5 +181,75 @@ func TestMergeAgentsKeepsFirstOccurrenceOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("merged agents = %v, want %v", got, want)
+	}
+}
+
+func TestRecentUnhandledAgentMentionRoutesBackfillsAgentReply(t *testing.T) {
+	replyEnv := protocol.NewEnvelope("srv_local", "agent.reply", protocol.Actor{Kind: "agent", ID: "agent_claudelocal", Name: "ClaudeLocal"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentReplyPayload{
+		AgentID:     "agent_claudelocal",
+		ChannelID:   "chan_general",
+		Text:        "@Lin can you validate this?",
+		ThreadDepth: 0,
+	}, "")
+	state := protocol.State{
+		Channels: []protocol.Channel{{ID: "chan_general", Name: "general"}},
+		Agents: []protocol.Agent{
+			{ID: "agent_lin", Name: "Lin"},
+			{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+		},
+		Messages: []protocol.Message{{
+			ID:         "msg_1",
+			ChannelID:  "chan_general",
+			AuthorKind: "agent",
+			AuthorID:   "agent_claudelocal",
+			AuthorName: "ClaudeLocal",
+			Text:       "@Lin can you validate this?",
+			ProtocolID: replyEnv.ID,
+		}},
+		Events: []protocol.Envelope{replyEnv},
+	}
+
+	got := recentUnhandledAgentMentionRoutes(state, 30)
+	if len(got) != 1 {
+		t.Fatalf("routes = %d, want 1", len(got))
+	}
+	if !reflect.DeepEqual(got[0].TargetIDs, []string{"agent_lin"}) {
+		t.Fatalf("targets = %v, want Lin", got[0].TargetIDs)
+	}
+	if got[0].ThreadDepth != 1 {
+		t.Fatalf("thread depth = %d, want 1", got[0].ThreadDepth)
+	}
+	if !reflect.DeepEqual(got[0].PeerPool, []protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}, {ID: "agent_lin", Name: "Lin"}}) {
+		t.Fatalf("peer pool = %v", got[0].PeerPool)
+	}
+}
+
+func TestRecentUnhandledAgentMentionRoutesSkipsHandledReply(t *testing.T) {
+	replyEnv := protocol.NewEnvelope("srv_local", "agent.reply", protocol.Actor{Kind: "agent", ID: "agent_claudelocal", Name: "ClaudeLocal"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentReplyPayload{
+		AgentID:   "agent_claudelocal",
+		ChannelID: "chan_general",
+		Text:      "@Lin can you validate this?",
+	}, "")
+	routedEnv := protocol.NewEnvelope("srv_local", "agent.message", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentMessagePayload{}, replyEnv.ID)
+	state := protocol.State{
+		Channels: []protocol.Channel{{ID: "chan_general", Name: "general"}},
+		Agents: []protocol.Agent{
+			{ID: "agent_lin", Name: "Lin"},
+			{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+		},
+		Messages: []protocol.Message{{
+			ID:         "msg_1",
+			ChannelID:  "chan_general",
+			AuthorKind: "agent",
+			AuthorID:   "agent_claudelocal",
+			Text:       "@Lin can you validate this?",
+			ProtocolID: replyEnv.ID,
+		}},
+		Events: []protocol.Envelope{replyEnv, routedEnv},
+	}
+
+	got := recentUnhandledAgentMentionRoutes(state, 30)
+	if len(got) != 0 {
+		t.Fatalf("handled reply should not backfill, got %v", got)
 	}
 }
