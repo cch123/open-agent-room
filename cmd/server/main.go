@@ -90,6 +90,7 @@ func main() {
 	mux.HandleFunc("/api/events", a.handleEvents)
 	mux.HandleFunc("/api/messages", a.handleMessages)
 	mux.HandleFunc("/api/channels", a.handleChannels)
+	mux.HandleFunc("/api/channels/", a.handleChannelSubroutes)
 	mux.HandleFunc("/api/agents", a.handleAgents)
 	mux.HandleFunc("/api/agents/", a.handleAgentSubroutes)
 	mux.HandleFunc("/daemon", a.handleDaemon)
@@ -217,6 +218,37 @@ func (a *app) handleChannels(w http.ResponseWriter, r *http.Request) {
 	_ = a.store.AddEnvelope(env)
 	a.broadcast()
 	writeJSON(w, http.StatusCreated, ch)
+}
+
+func (a *app) handleChannelSubroutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/channels/")
+	if !strings.HasSuffix(path, "/default-agent") {
+		http.NotFound(w, r)
+		return
+	}
+	channelID := strings.TrimSuffix(path, "/default-agent")
+	channelID = strings.TrimSuffix(channelID, "/")
+	var req struct {
+		AgentID string `json:"agentId"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	ch, err := a.store.UpdateChannelDefaultAgent(channelID, req.AgentID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	a.setActiveAgent(ch.ID, ch.DefaultAgentID)
+	env := protocol.NewEnvelope(a.store.ServerID(), "channel.default_agent.updated", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "channel", ID: ch.ID}, ch, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusOK, ch)
 }
 
 func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {
@@ -448,6 +480,9 @@ func defaultAgentForChannel(ch protocol.Channel, agents []protocol.Agent) (strin
 	byID := make(map[string]protocol.Agent, len(agents))
 	for _, agent := range agents {
 		byID[agent.ID] = agent
+	}
+	if agent, ok := byID[ch.DefaultAgentID]; ok {
+		return agent.ID, true
 	}
 	for _, memberID := range ch.MemberIDs {
 		if agent, ok := byID[memberID]; ok {

@@ -206,6 +206,25 @@ button:hover {
   border-bottom: 1px solid var(--line);
 }
 
+.room-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.default-agent-control {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 170px;
+}
+
+.default-agent-control select {
+  padding: 7px 9px;
+}
+
 .eyebrow {
   color: var(--muted);
   font-size: 12px;
@@ -489,6 +508,12 @@ menu button:first-child {
 
   .compose-row {
     grid-template-columns: 1fr;
+  }
+
+  .room-header,
+  .room-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .runtime-grid {

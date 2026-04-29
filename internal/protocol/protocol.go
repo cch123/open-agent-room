@@ -50,10 +50,11 @@ type User struct {
 }
 
 type Channel struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Topic     string   `json:"topic"`
-	MemberIDs []string `json:"memberIds"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Topic          string   `json:"topic"`
+	MemberIDs      []string `json:"memberIds"`
+	DefaultAgentID string   `json:"defaultAgentId,omitempty"`
 }
 
 type MemoryItem struct {

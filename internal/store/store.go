@@ -41,6 +41,7 @@ func (s *Store) load() error {
 		s.state.Meta.ServerID = "srv_local"
 	}
 	s.ensureAgentRuntimeDefaultsLocked()
+	s.ensureChannelDefaultsLocked()
 	return nil
 }
 
@@ -120,11 +121,16 @@ func (s *Store) AddChannel(name, topic string) (protocol.Channel, error) {
 	for _, agent := range s.state.Agents {
 		memberIDs = appendUnique(memberIDs, agent.ID)
 	}
+	defaultAgentID := ""
+	if len(s.state.Agents) > 0 {
+		defaultAgentID = s.state.Agents[0].ID
+	}
 	ch := protocol.Channel{
-		ID:        protocol.NewID("chan"),
-		Name:      name,
-		Topic:     strings.TrimSpace(topic),
-		MemberIDs: memberIDs,
+		ID:             protocol.NewID("chan"),
+		Name:           name,
+		Topic:          strings.TrimSpace(topic),
+		MemberIDs:      memberIDs,
+		DefaultAgentID: defaultAgentID,
 	}
 	s.state.Channels = append(s.state.Channels, ch)
 	s.touchLocked()
@@ -161,9 +167,40 @@ func (s *Store) AddAgent(name, persona, runtimeName, model string) (protocol.Age
 	s.state.Agents = append(s.state.Agents, agent)
 	for i := range s.state.Channels {
 		s.state.Channels[i].MemberIDs = appendUnique(s.state.Channels[i].MemberIDs, agent.ID)
+		if s.state.Channels[i].DefaultAgentID == "" {
+			s.state.Channels[i].DefaultAgentID = agent.ID
+		}
 	}
 	s.touchLocked()
 	return agent, s.saveLocked()
+}
+
+func (s *Store) UpdateChannelDefaultAgent(channelID, agentID string) (protocol.Channel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var agent protocol.Agent
+	agentFound := false
+	for _, existing := range s.state.Agents {
+		if existing.ID == agentID {
+			agent = existing
+			agentFound = true
+			break
+		}
+	}
+	if !agentFound {
+		return protocol.Channel{}, errors.New("agent not found")
+	}
+
+	for i := range s.state.Channels {
+		if s.state.Channels[i].ID == channelID {
+			s.state.Channels[i].DefaultAgentID = agent.ID
+			s.state.Channels[i].MemberIDs = appendUnique(s.state.Channels[i].MemberIDs, agent.ID)
+			s.touchLocked()
+			return s.state.Channels[i], s.saveLocked()
+		}
+	}
+	return protocol.Channel{}, errors.New("channel not found")
 }
 
 func (s *Store) UpsertDaemon(d protocol.Daemon) error {
@@ -309,8 +346,8 @@ func DefaultState() protocol.State {
 			{ID: "usr_you", Name: "You", Color: "#2563eb"},
 		},
 		Channels: []protocol.Channel{
-			{ID: "chan_general", Name: "general", Topic: "Daily human-agent collaboration", MemberIDs: []string{"usr_you", "agent_ada", "agent_lin"}},
-			{ID: "chan_build-room", Name: "build-room", Topic: "Implementation tasks, reviews, and handoffs", MemberIDs: []string{"usr_you", "agent_ada", "agent_lin"}},
+			{ID: "chan_general", Name: "general", Topic: "Daily human-agent collaboration", MemberIDs: []string{"usr_you", "agent_ada", "agent_lin"}, DefaultAgentID: "agent_ada"},
+			{ID: "chan_build-room", Name: "build-room", Topic: "Implementation tasks, reviews, and handoffs", MemberIDs: []string{"usr_you", "agent_lin", "agent_ada"}, DefaultAgentID: "agent_lin"},
 		},
 		Agents: []protocol.Agent{
 			{ID: "agent_ada", Name: "Ada", Persona: "Systems designer who turns rough requests into concrete plans.", Runtime: "codex", Status: "waiting", Capabilities: []string{"plan", "review", "remember"}, Color: "#0f766e"},
@@ -383,4 +420,37 @@ func normalizeRuntime(runtimeName string) string {
 	default:
 		return "codex"
 	}
+}
+
+func (s *Store) ensureChannelDefaultsLocked() {
+	agentIDs := make(map[string]bool, len(s.state.Agents))
+	for _, agent := range s.state.Agents {
+		agentIDs[agent.ID] = true
+	}
+	for i := range s.state.Channels {
+		if agentIDs[s.state.Channels[i].DefaultAgentID] {
+			s.state.Channels[i].MemberIDs = appendUnique(s.state.Channels[i].MemberIDs, s.state.Channels[i].DefaultAgentID)
+			continue
+		}
+		s.state.Channels[i].DefaultAgentID = firstChannelAgentID(s.state.Channels[i], s.state.Agents)
+		if s.state.Channels[i].DefaultAgentID != "" {
+			s.state.Channels[i].MemberIDs = appendUnique(s.state.Channels[i].MemberIDs, s.state.Channels[i].DefaultAgentID)
+		}
+	}
+}
+
+func firstChannelAgentID(ch protocol.Channel, agents []protocol.Agent) string {
+	agentIDs := make(map[string]bool, len(agents))
+	for _, agent := range agents {
+		agentIDs[agent.ID] = true
+	}
+	for _, memberID := range ch.MemberIDs {
+		if agentIDs[memberID] {
+			return memberID
+		}
+	}
+	if len(agents) == 0 {
+		return ""
+	}
+	return agents[0].ID
 }

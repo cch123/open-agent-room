@@ -74,3 +74,22 @@ func TestResolveAgentRoutesUsesFirstChannelAgentByDefault(t *testing.T) {
 		t.Fatalf("default becomes active = %v, want %v", got, want)
 	}
 }
+
+func TestResolveAgentRoutesUsesConfiguredChannelDefault(t *testing.T) {
+	app := &app{activeAgents: make(map[string]string)}
+	agents := []protocol.Agent{
+		{ID: "agent_ada", Name: "Ada"},
+		{ID: "agent_lin", Name: "Lin"},
+	}
+	channel := protocol.Channel{
+		ID:             "chan_general",
+		MemberIDs:      []string{"usr_you", "agent_ada", "agent_lin"},
+		DefaultAgentID: "agent_lin",
+	}
+
+	got := app.resolveAgentRoutes(channel, "first message without mention", agents)
+	want := []string{"agent_lin"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("configured default = %v, want %v", got, want)
+	}
+}

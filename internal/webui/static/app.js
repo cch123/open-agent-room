@@ -37,6 +37,7 @@ const els = {
   assignAgent: document.querySelector("#assign-agent"),
   assignTask: document.querySelector("#assign-task"),
   assignButton: document.querySelector("#assign-button"),
+  defaultAgent: document.querySelector("#default-agent"),
   eventList: document.querySelector("#event-list"),
   eventDetail: document.querySelector("#event-detail"),
   eventCount: document.querySelector("#event-count"),
@@ -86,6 +87,7 @@ function render() {
   renderMessages();
   renderMentions(agents);
   renderDaemon(daemons);
+  renderChannelSettings(current, agents);
   renderAssign(agents);
   renderEvents(events || []);
 }
@@ -162,6 +164,21 @@ function renderDaemon(daemons) {
   els.daemonCount.textContent = `${online.length} online`;
 }
 
+function renderChannelSettings(channel, agents) {
+  const previous = els.defaultAgent.value;
+  els.defaultAgent.innerHTML = "";
+  for (const agent of agents) {
+    const option = document.createElement("option");
+    option.value = agent.id;
+    option.textContent = `${agent.name} · ${runtimeLabel(agent)}`;
+    els.defaultAgent.append(option);
+  }
+  const selected = channelDefaultAgentId(channel, agents) || previous;
+  if (selected) els.defaultAgent.value = selected;
+  const disabled = !channel || agents.length === 0;
+  els.defaultAgent.disabled = disabled;
+}
+
 function renderAssign(agents) {
   const previous = els.assignAgent.value;
   els.assignAgent.innerHTML = "";
@@ -217,6 +234,19 @@ els.assignButton.addEventListener("click", async () => {
     await api(`/api/agents/${encodeURIComponent(agentId)}/assign`, {
       method: "POST",
       body: JSON.stringify({ channelId: state.channelId, task }),
+    });
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+els.defaultAgent.addEventListener("change", async () => {
+  const agentId = els.defaultAgent.value;
+  if (!state.channelId || !agentId) return;
+  try {
+    await api(`/api/channels/${encodeURIComponent(state.channelId)}/default-agent`, {
+      method: "POST",
+      body: JSON.stringify({ agentId }),
     });
   } catch (error) {
     alert(error.message);
@@ -284,6 +314,18 @@ function runtimeLabel(agent) {
   const runtime = agent.runtime || "codex";
   const model = agent.model || "default";
   return `${runtime}/${model}`;
+}
+
+function channelDefaultAgentId(channel, agents) {
+  if (!channel) return "";
+  if (agents.some((agent) => agent.id === channel.defaultAgentId)) {
+    return channel.defaultAgentId;
+  }
+  const byId = new Set(agents.map((agent) => agent.id));
+  for (const memberId of channel.memberIds || []) {
+    if (byId.has(memberId)) return memberId;
+  }
+  return agents[0]?.id || "";
 }
 
 function initials(name = "?") {
