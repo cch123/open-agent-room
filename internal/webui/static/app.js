@@ -168,9 +168,12 @@ function renderMessages() {
         </div>
         ${content}
       </div>`;
-    const card = item.querySelector("[data-markdown-document]");
-    if (card) {
-      card.addEventListener("click", () => openMarkdownDocument(message));
+    const cards = item.querySelectorAll("[data-markdown-document]");
+    for (const card of cards) {
+      card.addEventListener("click", () => {
+        const document = markdownDocumentParts(message).document;
+        openMarkdownDocument(message, document);
+      });
     }
     els.messages.append(item);
   }
@@ -181,10 +184,14 @@ function renderMessageContent(message) {
   if (!isMarkdownDocumentMessage(message)) {
     return `<div class="message-text">${linkMentions(escapeHTML(message.text))}</div>`;
   }
-  const title = markdownDocumentTitle(message.text);
-  const stats = markdownStats(message.text);
-  const excerpt = markdownExcerpt(message.text, title);
+  const parts = markdownDocumentParts(message);
+  const title = markdownDocumentTitle(parts.document);
+  const stats = markdownStats(parts.document);
+  const excerpt = markdownExcerpt(parts.document, title);
+  const before = parts.before ? `<div class="message-text">${linkMentions(escapeHTML(parts.before))}</div>` : "";
+  const after = parts.after ? `<div class="message-text">${linkMentions(escapeHTML(parts.after))}</div>` : "";
   return `
+    ${before}
     <button class="markdown-card" type="button" data-markdown-document="${escapeHTML(message.id || "")}">
       <span class="markdown-card-icon">MD</span>
       <span class="markdown-card-copy">
@@ -193,7 +200,8 @@ function renderMessageContent(message) {
         <span>${linkMentions(escapeHTML(excerpt))}</span>
       </span>
       <span class="markdown-card-action">Open</span>
-    </button>`;
+    </button>
+    ${after}`;
 }
 
 function isMarkdownDocumentMessage(message) {
@@ -210,6 +218,46 @@ function isMarkdownDocumentMessage(message) {
   ];
   const signalCount = signals.filter((pattern) => pattern.test(text)).length;
   return signalCount >= 2 || text.length > 1600;
+}
+
+function markdownDocumentParts(message) {
+  const text = message.text || "";
+  if (!isMarkdownDocumentMessage(message)) {
+    return { before: text, document: "", after: "" };
+  }
+  const lines = text.split("\n");
+  const start = markdownDocumentStartLine(lines);
+  if (start <= 0) {
+    return { before: "", document: text.trim(), after: "" };
+  }
+  return {
+    before: lines.slice(0, start).join("\n").trim(),
+    document: lines.slice(start).join("\n").trim(),
+    after: "",
+  };
+}
+
+function markdownDocumentStartLine(lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) continue;
+    if (trimmed === "---" && followingMarkdownSignals(lines, index + 1) >= 1) return index;
+    if (/^#{1,3}\s+/.test(trimmed)) return index;
+    if (/^\*\*[^*]{2,120}\*\*$/.test(trimmed) && followingMarkdownSignals(lines, index + 1) >= 1) return index;
+  }
+  return 0;
+}
+
+function followingMarkdownSignals(lines, start) {
+  const sample = lines.slice(start, start + 8).join("\n");
+  return [
+    /^#{1,3}\s+/m,
+    /\n\s*[-*]\s+\S/,
+    /\n\s*\d+\.\s+\S/,
+    /\n\|.+\|/,
+    /\*\*[^*]+\*\*/,
+    /```/,
+  ].filter((pattern) => pattern.test(sample)).length;
 }
 
 function markdownDocumentTitle(text) {
@@ -249,10 +297,10 @@ function cleanMarkdownInline(text = "") {
     .trim();
 }
 
-function openMarkdownDocument(message) {
-  els.markdownDialogTitle.textContent = markdownDocumentTitle(message.text);
+function openMarkdownDocument(message, documentText = message.text) {
+  els.markdownDialogTitle.textContent = markdownDocumentTitle(documentText);
   els.markdownDialogMeta.textContent = `${message.authorName} · ${formatTime(message.timestamp)}`;
-  els.markdownDialogBody.innerHTML = renderMarkdown(message.text);
+  els.markdownDialogBody.innerHTML = renderMarkdown(documentText);
   els.markdownDialog.showModal();
 }
 
