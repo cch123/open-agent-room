@@ -370,6 +370,64 @@ h2 {
   line-height: 1.46;
 }
 
+.markdown-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: min(620px, 100%);
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+}
+
+.markdown-card:hover,
+.markdown-card:focus-visible {
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.markdown-card-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 52px;
+  border-radius: 6px;
+  background: #eef6ff;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+}
+
+.markdown-card-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.markdown-card-copy strong,
+.markdown-card-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-card-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.markdown-card-action {
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .composer {
   border-top: 1px solid var(--line);
   padding: 12px 16px 16px;
@@ -523,6 +581,91 @@ dialog::backdrop {
   gap: 6px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.markdown-dialog {
+  width: min(900px, calc(100vw - 28px));
+  max-height: min(820px, calc(100vh - 28px));
+  padding: 0;
+}
+
+.markdown-dialog-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(820px, calc(100vh - 28px));
+  background: #fff;
+}
+
+.markdown-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.markdown-dialog-header h2 {
+  margin-top: 3px;
+  font-size: 18px;
+}
+
+.markdown-dialog-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.markdown-body {
+  overflow: auto;
+  padding: 22px 26px 30px;
+  line-height: 1.58;
+}
+
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 22px 0 10px;
+}
+
+.markdown-body h2:first-child,
+.markdown-body h3:first-child,
+.markdown-body h4:first-child {
+  margin-top: 0;
+}
+
+.markdown-body p {
+  margin: 0 0 12px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 14px 22px;
+  padding: 0;
+}
+
+.markdown-body li {
+  margin: 5px 0;
+}
+
+.markdown-body code {
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.markdown-body pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 7px;
+  background: #101827;
+  color: #dbeafe;
+}
+
+.markdown-body blockquote {
+  margin: 0 0 14px;
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
 }
 
 .runtime-grid {

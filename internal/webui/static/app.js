@@ -49,6 +49,11 @@ const els = {
   agentModelCustom: document.querySelector("#agent-model-custom"),
   agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
   channelDialog: document.querySelector("#channel-dialog"),
+  markdownDialog: document.querySelector("#markdown-dialog"),
+  markdownDialogTitle: document.querySelector("#markdown-dialog-title"),
+  markdownDialogMeta: document.querySelector("#markdown-dialog-meta"),
+  markdownDialogBody: document.querySelector("#markdown-dialog-body"),
+  markdownDialogClose: document.querySelector("#markdown-dialog-close"),
 };
 
 async function api(path, options = {}) {
@@ -152,6 +157,7 @@ function renderMessages() {
     item.className = `message ${message.kind || ""} ${message.authorKind || ""}`;
     const agent = byAgent.get(message.authorId);
     const color = agent?.color || (message.authorKind === "human" ? "#2563eb" : "#64748b");
+    const content = renderMessageContent(message);
     item.innerHTML = `
       <span class="avatar" style="background:${color}">${initials(message.authorName)}</span>
       <div>
@@ -160,11 +166,94 @@ function renderMessages() {
           <span class="message-kind">${escapeHTML(message.authorKind)}</span>
           <time class="message-time">${formatTime(message.timestamp)}</time>
         </div>
-        <div class="message-text">${linkMentions(escapeHTML(message.text))}</div>
+        ${content}
       </div>`;
+    const card = item.querySelector("[data-markdown-document]");
+    if (card) {
+      card.addEventListener("click", () => openMarkdownDocument(message));
+    }
     els.messages.append(item);
   }
   els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function renderMessageContent(message) {
+  if (!isMarkdownDocumentMessage(message)) {
+    return `<div class="message-text">${linkMentions(escapeHTML(message.text))}</div>`;
+  }
+  const title = markdownDocumentTitle(message.text);
+  const stats = markdownStats(message.text);
+  const excerpt = markdownExcerpt(message.text, title);
+  return `
+    <button class="markdown-card" type="button" data-markdown-document="${escapeHTML(message.id || "")}">
+      <span class="markdown-card-icon">MD</span>
+      <span class="markdown-card-copy">
+        <strong>${escapeHTML(title)}</strong>
+        <small>${stats}</small>
+        <span>${linkMentions(escapeHTML(excerpt))}</span>
+      </span>
+      <span class="markdown-card-action">Open</span>
+    </button>`;
+}
+
+function isMarkdownDocumentMessage(message) {
+  if (message.authorKind !== "agent") return false;
+  const text = message.text || "";
+  if (text.length < 900) return false;
+  const signals = [
+    /^#{1,3}\s+/m,
+    /\n```/,
+    /\n\s*[-*]\s+\S/,
+    /\n\s*\d+\.\s+\S/,
+    /\n\|.+\|/,
+    /\*\*[^*]+\*\*/,
+  ];
+  const signalCount = signals.filter((pattern) => pattern.test(text)).length;
+  return signalCount >= 2 || text.length > 1600;
+}
+
+function markdownDocumentTitle(text) {
+  const heading = text.match(/^#{1,3}\s+(.+)$/m);
+  if (heading?.[1]) return cleanMarkdownInline(heading[1]).slice(0, 90);
+  const bold = text.match(/\*\*([^*]+)\*\*/);
+  if (bold?.[1]) return cleanMarkdownInline(bold[1]).slice(0, 90);
+  const firstLine = text
+    .split("\n")
+    .map((line) => cleanMarkdownInline(line))
+    .find((line) => line && !line.startsWith("@"));
+  return (firstLine || "Markdown document").slice(0, 90);
+}
+
+function markdownExcerpt(text, title) {
+  const lines = text
+    .split("\n")
+    .map((line) => cleanMarkdownInline(line))
+    .filter((line) => line && line !== title && !line.startsWith("---"));
+  return (lines.find((line) => !line.startsWith("#")) || "Open to read the full document.").slice(0, 150);
+}
+
+function markdownStats(text) {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const lines = text.split("\n").length;
+  const minutes = Math.max(1, Math.ceil(words / 260));
+  return `${lines} lines · ${minutes} min read`;
+}
+
+function cleanMarkdownInline(text = "") {
+  return text
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^[-*]\s+/, "")
+    .replace(/^\d+\.\s+/, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim();
+}
+
+function openMarkdownDocument(message) {
+  els.markdownDialogTitle.textContent = markdownDocumentTitle(message.text);
+  els.markdownDialogMeta.textContent = `${message.authorName} · ${formatTime(message.timestamp)}`;
+  els.markdownDialogBody.innerHTML = renderMarkdown(message.text);
+  els.markdownDialog.showModal();
 }
 
 function renderMentions(agents) {
@@ -280,6 +369,7 @@ document.querySelector("#new-channel").addEventListener("click", () => els.chann
 
 els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
 els.agentModel.addEventListener("change", updateCustomModelVisibility);
+els.markdownDialogClose.addEventListener("click", () => els.markdownDialog.close());
 
 document.querySelector("#agent-create").addEventListener("click", async (event) => {
   event.preventDefault();
@@ -389,6 +479,98 @@ function formatTime(value) {
 
 function linkMentions(text) {
   return text.replace(/@([a-z0-9][a-z0-9_-]{0,40})/gi, "<strong>@$1</strong>");
+}
+
+function renderMarkdown(text = "") {
+  const lines = text.split("\n");
+  const html = [];
+  let inCode = false;
+  let codeLines = [];
+  let listType = "";
+
+  const closeList = () => {
+    if (listType) {
+      html.push(`</${listType}>`);
+      listType = "";
+    }
+  };
+  const openList = (type) => {
+    if (listType === type) return;
+    closeList();
+    html.push(`<${type}>`);
+    listType = type;
+  };
+  const closeCode = () => {
+    html.push(`<pre><code>${escapeHTML(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+    inCode = false;
+  };
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      closeList();
+      if (inCode) closeCode();
+      else inCode = true;
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(heading[1].length + 1, 4);
+      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      openList("ul");
+      html.push(`<li>${inlineMarkdown(bullet[1])}</li>`);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      openList("ol");
+      html.push(`<li>${inlineMarkdown(ordered[1])}</li>`);
+      continue;
+    }
+
+    if (trimmed.startsWith(">")) {
+      closeList();
+      html.push(`<blockquote>${inlineMarkdown(trimmed.replace(/^>\s?/, ""))}</blockquote>`);
+      continue;
+    }
+
+    if (/^\|.+\|$/.test(trimmed)) {
+      closeList();
+      html.push(`<pre class="markdown-table">${escapeHTML(trimmed)}</pre>`);
+      continue;
+    }
+
+    closeList();
+    html.push(`<p>${inlineMarkdown(trimmed)}</p>`);
+  }
+
+  closeList();
+  if (inCode) closeCode();
+  return html.join("");
+}
+
+function inlineMarkdown(text = "") {
+  return linkMentions(escapeHTML(text))
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 function escapeHTML(value = "") {
