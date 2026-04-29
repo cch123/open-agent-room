@@ -149,6 +149,14 @@ button:hover {
   padding: 0 10px;
 }
 
+.nav-row,
+.agent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 4px;
+  align-items: start;
+}
+
 .nav-item,
 .agent-item {
   width: 100%;
@@ -172,6 +180,31 @@ button:hover {
 .agent-item:hover,
 .nav-item:hover {
   background: var(--surface-2);
+}
+
+.item-delete {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 9px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0.38;
+}
+
+.nav-row:hover .item-delete,
+.nav-row:focus-within .item-delete,
+.agent-row:hover .item-delete,
+.agent-row:focus-within .item-delete {
+  opacity: 1;
+}
+
+.item-delete:hover,
+.item-delete:focus-visible {
+  background: rgba(190, 18, 60, 0.09);
+  color: var(--rose);
 }
 
 .hash,

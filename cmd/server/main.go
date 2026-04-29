@@ -221,11 +221,28 @@ func (a *app) handleChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleChannelSubroutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/channels/"), "/")
+	if r.Method == http.MethodDelete {
+		if path == "" || strings.Contains(path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		ch, err := a.store.DeleteChannel(path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		a.clearActiveChannel(ch.ID)
+		env := protocol.NewEnvelope(a.store.ServerID(), "channel.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, ch, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusOK, ch)
+		return
+	}
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
 		return
 	}
-	path := strings.TrimPrefix(r.URL.Path, "/api/channels/")
 	if !strings.HasSuffix(path, "/default-agent") {
 		http.NotFound(w, r)
 		return
@@ -279,11 +296,28 @@ func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/agents/"), "/")
+	if r.Method == http.MethodDelete {
+		if path == "" || strings.Contains(path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		agent, err := a.store.DeleteAgent(path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		a.clearActiveAgentEverywhere(agent.ID)
+		env := protocol.NewEnvelope(a.store.ServerID(), "agent.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, agent, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusOK, agent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
 		return
 	}
-	path := strings.TrimPrefix(r.URL.Path, "/api/agents/")
 	if !strings.HasSuffix(path, "/assign") {
 		http.NotFound(w, r)
 		return
@@ -526,6 +560,16 @@ func (a *app) clearActiveChannel(channelID string) {
 	a.activeMu.Lock()
 	delete(a.activeAgents, channelID)
 	a.activeMu.Unlock()
+}
+
+func (a *app) clearActiveAgentEverywhere(agentID string) {
+	a.activeMu.Lock()
+	defer a.activeMu.Unlock()
+	for channelID, activeAgentID := range a.activeAgents {
+		if activeAgentID == agentID {
+			delete(a.activeAgents, channelID)
+		}
+	}
 }
 
 func (a *app) routeTask(agent protocol.Agent, ch protocol.Channel, payload protocol.TaskAssignedPayload, env protocol.Envelope) {

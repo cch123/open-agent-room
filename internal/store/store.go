@@ -137,6 +137,31 @@ func (s *Store) AddChannel(name, topic string) (protocol.Channel, error) {
 	return ch, s.saveLocked()
 }
 
+func (s *Store) DeleteChannel(id string) (protocol.Channel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.TrimSpace(strings.TrimPrefix(id, "#"))
+	if len(s.state.Channels) <= 1 {
+		return protocol.Channel{}, errors.New("cannot delete the last channel")
+	}
+	for i, ch := range s.state.Channels {
+		if ch.ID != id && ch.Name != id {
+			continue
+		}
+		s.state.Channels = append(s.state.Channels[:i], s.state.Channels[i+1:]...)
+		messages := s.state.Messages[:0]
+		for _, msg := range s.state.Messages {
+			if msg.ChannelID != ch.ID {
+				messages = append(messages, msg)
+			}
+		}
+		s.state.Messages = messages
+		s.touchLocked()
+		return ch, s.saveLocked()
+	}
+	return protocol.Channel{}, errors.New("channel not found")
+}
+
 func (s *Store) AddAgent(name, persona, runtimeName, model string) (protocol.Agent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -173,6 +198,30 @@ func (s *Store) AddAgent(name, persona, runtimeName, model string) (protocol.Age
 	}
 	s.touchLocked()
 	return agent, s.saveLocked()
+}
+
+func (s *Store) DeleteAgent(id string) (protocol.Agent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "@"))
+	for i, agent := range s.state.Agents {
+		if !agentMatches(agent, id) {
+			continue
+		}
+		s.state.Agents = append(s.state.Agents[:i], s.state.Agents[i+1:]...)
+		for j := range s.state.Channels {
+			s.state.Channels[j].MemberIDs = removeValue(s.state.Channels[j].MemberIDs, agent.ID)
+			if s.state.Channels[j].DefaultAgentID == agent.ID {
+				s.state.Channels[j].DefaultAgentID = firstChannelAgentID(s.state.Channels[j], s.state.Agents)
+				if s.state.Channels[j].DefaultAgentID != "" {
+					s.state.Channels[j].MemberIDs = appendUnique(s.state.Channels[j].MemberIDs, s.state.Channels[j].DefaultAgentID)
+				}
+			}
+		}
+		s.touchLocked()
+		return agent, s.saveLocked()
+	}
+	return protocol.Agent{}, errors.New("agent not found")
 }
 
 func (s *Store) UpdateChannelDefaultAgent(channelID, agentID string) (protocol.Channel, error) {
@@ -284,7 +333,7 @@ func (s *Store) FindAgent(id string) (protocol.Agent, bool) {
 	defer s.mu.RUnlock()
 	id = strings.ToLower(strings.TrimPrefix(id, "@"))
 	for _, agent := range s.state.Agents {
-		if strings.ToLower(agent.ID) == id || strings.ToLower(agent.Name) == id || strings.TrimPrefix(strings.ToLower(agent.ID), "agent_") == id {
+		if agentMatches(agent, id) {
 			return agent, true
 		}
 	}
@@ -373,6 +422,20 @@ func appendUnique(values []string, next string) []string {
 		}
 	}
 	return append(values, next)
+}
+
+func removeValue(values []string, target string) []string {
+	out := values[:0]
+	for _, value := range values {
+		if value != target {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func agentMatches(agent protocol.Agent, id string) bool {
+	return strings.ToLower(agent.ID) == id || strings.ToLower(agent.Name) == id || strings.TrimPrefix(strings.ToLower(agent.ID), "agent_") == id
 }
 
 func slug(value string) string {

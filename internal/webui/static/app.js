@@ -95,6 +95,8 @@ function render() {
 function renderChannels(channels) {
   els.channelList.innerHTML = "";
   for (const channel of channels) {
+    const row = document.createElement("div");
+    row.className = "nav-row";
     const button = document.createElement("button");
     button.className = `nav-item ${channel.id === state.channelId ? "active" : ""}`;
     button.title = channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`;
@@ -103,13 +105,23 @@ function renderChannels(channels) {
       state.channelId = channel.id;
       render();
     });
-    els.channelList.append(button);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "item-delete";
+    deleteButton.title = `Delete #${channel.name}`;
+    deleteButton.setAttribute("aria-label", `Delete channel ${channel.name}`);
+    deleteButton.textContent = "x";
+    deleteButton.addEventListener("click", () => deleteChannel(channel));
+    row.append(button, deleteButton);
+    els.channelList.append(row);
   }
 }
 
 function renderAgents(agents) {
   els.agentList.innerHTML = "";
   for (const agent of agents) {
+    const row = document.createElement("div");
+    row.className = "agent-row";
     const button = document.createElement("button");
     button.className = "agent-item";
     const meta = `${agent.status} · ${runtimeLabel(agent)} · ${agent.persona}`;
@@ -118,7 +130,15 @@ function renderAgents(agents) {
     button.addEventListener("click", () => {
       insertMention(agent.name);
     });
-    els.agentList.append(button);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "item-delete";
+    deleteButton.title = `Delete ${agent.name}`;
+    deleteButton.setAttribute("aria-label", `Delete agent ${agent.name}`);
+    deleteButton.textContent = "x";
+    deleteButton.addEventListener("click", () => deleteAgent(agent));
+    row.append(button, deleteButton);
+    els.agentList.append(row);
   }
 }
 
@@ -289,6 +309,28 @@ document.querySelector("#channel-create").addEventListener("click", async (event
   document.querySelector("#channel-topic").value = "";
   els.channelDialog.close();
 });
+
+async function deleteChannel(channel) {
+  if (!window.confirm(`Delete #${channel.name}? This removes the channel and its messages.`)) return;
+  try {
+    await api(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
+    if (state.channelId === channel.id) {
+      const next = state.snapshot.channels.find((candidate) => candidate.id !== channel.id);
+      state.channelId = next?.id || "";
+    }
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteAgent(agent) {
+  if (!window.confirm(`Delete ${agent.name}? Existing messages from this agent stay in the channel history.`)) return;
+  try {
+    await api(`/api/agents/${encodeURIComponent(agent.id)}`, { method: "DELETE" });
+  } catch (error) {
+    alert(error.message);
+  }
+}
 
 function insertMention(name) {
   const suffix = els.input.value && !els.input.value.endsWith(" ") ? " " : "";

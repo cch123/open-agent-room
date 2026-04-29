@@ -54,6 +54,8 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 | `daemon.ready` | Server to daemon | Confirm registration and return server metadata. |
 | `agent.spawn` | Server to daemon | Ask a daemon to host or hydrate an agent. |
 | `agent.ready` | Daemon to server | Confirm the agent runtime is available. |
+| `agent.deleted` | Server | Record that an agent was removed from the workspace roster. |
+| `channel.deleted` | Server | Record that a channel and its messages were removed. |
 | `message.created` | Any to server | Append a visible message in a channel or DM. |
 | `agent.message` | Server to daemon | Route a human/channel message to an agent. |
 | `task.assigned` | Server to daemon | Ask an agent to take ownership of a task. |
