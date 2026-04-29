@@ -97,6 +97,7 @@ function renderChannels(channels) {
   for (const channel of channels) {
     const button = document.createElement("button");
     button.className = `nav-item ${channel.id === state.channelId ? "active" : ""}`;
+    button.title = channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`;
     button.innerHTML = `<span class="hash">#</span><span><strong>${escapeHTML(channel.name)}</strong><span class="nav-topic">${escapeHTML(channel.topic || "")}</span></span>`;
     button.addEventListener("click", () => {
       state.channelId = channel.id;
@@ -112,6 +113,7 @@ function renderAgents(agents) {
     const button = document.createElement("button");
     button.className = "agent-item";
     const meta = `${agent.status} · ${runtimeLabel(agent)} · ${agent.persona}`;
+    button.title = `${agent.name} - ${meta}`;
     button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
       insertMention(agent.name);

@@ -61,12 +61,17 @@ button:hover {
 .inspector {
   background: #fbfcfe;
   border-right: 1px solid var(--line);
-  overflow: auto;
+}
+
+.sidebar {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .inspector {
   border-left: 1px solid var(--line);
   border-right: 0;
+  overflow: auto;
   padding: 16px;
 }
 
@@ -158,6 +163,11 @@ button:hover {
   border-radius: 7px;
 }
 
+.nav-item > span:last-child,
+.agent-item > span:last-child {
+  min-width: 0;
+}
+
 .nav-item.active,
 .agent-item:hover,
 .nav-item:hover {
@@ -180,6 +190,14 @@ button:hover {
   color: white;
 }
 
+.nav-item strong,
+.agent-item strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-meta,
 .nav-topic {
   display: block;
@@ -188,6 +206,20 @@ button:hover {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.nav-item:hover strong,
+.nav-item:focus-visible strong,
+.agent-item:hover strong,
+.agent-item:focus-visible strong,
+.nav-item:hover .nav-topic,
+.nav-item:focus-visible .nav-topic,
+.agent-item:hover .agent-meta,
+.agent-item:focus-visible .agent-meta {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .conversation {
