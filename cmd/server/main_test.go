@@ -253,3 +253,26 @@ func TestRecentUnhandledAgentMentionRoutesSkipsHandledReply(t *testing.T) {
 		t.Fatalf("handled reply should not backfill, got %v", got)
 	}
 }
+
+func TestRecentUnhandledAgentMentionRoutesSkipsTrimmedReplyEvent(t *testing.T) {
+	state := protocol.State{
+		Channels: []protocol.Channel{{ID: "chan_general", Name: "general"}},
+		Agents: []protocol.Agent{
+			{ID: "agent_lin", Name: "Lin"},
+			{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+		},
+		Messages: []protocol.Message{{
+			ID:         "msg_1",
+			ChannelID:  "chan_general",
+			AuthorKind: "agent",
+			AuthorID:   "agent_claudelocal",
+			Text:       "@Lin can you validate this?",
+			ProtocolID: "evt_trimmed_reply",
+		}},
+	}
+
+	got := recentUnhandledAgentMentionRoutes(state, 30)
+	if len(got) != 0 {
+		t.Fatalf("trimmed reply event should not backfill, got %v", got)
+	}
+}

@@ -18,7 +18,6 @@ import (
 )
 
 const maxAgentThreadDepth = 6
-const agentMentionBackfillLimit = 30
 
 type app struct {
 	store        *store.Store
@@ -414,7 +413,6 @@ func (a *app) handleDaemon(w http.ResponseWriter, r *http.Request) {
 	for _, agent := range a.store.Snapshot().Agents {
 		a.spawnAgentOnClient(client, agent)
 	}
-	go a.routeRecentUnhandledAgentMentions(agentMentionBackfillLimit)
 
 	for {
 		var env protocol.Envelope
@@ -660,7 +658,10 @@ func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []age
 		if msg.AuthorKind != "agent" || msg.ProtocolID == "" || handledReplies[msg.ProtocolID] {
 			continue
 		}
-		threadDepth := replyDepths[msg.ProtocolID]
+		threadDepth, ok := replyDepths[msg.ProtocolID]
+		if !ok {
+			continue
+		}
 		if threadDepth >= maxAgentThreadDepth {
 			continue
 		}
