@@ -403,7 +403,7 @@ func buildRunnerPrompt(request runnerRequest) string {
 	b.WriteString("Task:\n")
 	b.WriteString(request.Prompt)
 	b.WriteString("\n\nReturn only the message that should be posted back into the channel.")
-	return b.String()
+	return strings.ToValidUTF8(b.String(), "\uFFFD")
 }
 
 func shellCommand(ctx context.Context, command string) *exec.Cmd {
@@ -442,7 +442,7 @@ func buildReply(agent protocol.Agent, prompt string, memories []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s is running in demo fallback mode.\n\n", agent.Name)
 	fmt.Fprintf(&b, "I received: %s\n\n", compact(prompt, 220))
-	b.WriteString("No real local agent command is configured on this daemon. Start the daemon with `--runner auto` or set `OPEN_AGENT_RUNNER` to a local CLI agent command.")
+	b.WriteString("This fallback response was generated inside the daemon. If you expected a real local agent, start the daemon with `--runner auto` and check the selected CLI runtime.")
 	if len(memories) > 0 {
 		latest := memories[len(memories)-1]
 		fmt.Fprintf(&b, "\nMemory in scope: %s", compact(latest, 160))
@@ -451,11 +451,19 @@ func buildReply(agent protocol.Agent, prompt string, memories []string) string {
 }
 
 func compact(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	text = strings.ToValidUTF8(text, "\uFFFD")
 	text = strings.Join(strings.Fields(text), " ")
-	if len(text) <= limit {
+	runes := []rune(text)
+	if len(runes) <= limit {
 		return text
 	}
-	return text[:limit-1] + "..."
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
 }
 
 func extractMemory(text string) string {
