@@ -455,6 +455,74 @@ h2 {
   align-items: end;
 }
 
+.compose-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.mention-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.mention-suggestions[hidden] {
+  display: none;
+}
+
+.mention-suggestion {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.mention-suggestion:hover,
+.mention-suggestion.active {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.mention-suggestion .avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+}
+
+.mention-suggestion span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mention-suggestion strong,
+.mention-suggestion small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-suggestion small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 textarea,
 input,
 select {

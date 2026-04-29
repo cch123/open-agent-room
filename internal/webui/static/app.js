@@ -2,6 +2,12 @@ const state = {
   snapshot: null,
   channelId: "chan_general",
   selectedEventId: null,
+  mention: {
+    active: false,
+    start: -1,
+    query: "",
+    selected: 0,
+  },
 };
 
 const runtimeModels = {
@@ -34,6 +40,7 @@ const els = {
   composer: document.querySelector("#composer"),
   input: document.querySelector("#message-input"),
   mentionRow: document.querySelector("#mention-row"),
+  mentionSuggestions: document.querySelector("#mention-suggestions"),
   assignAgent: document.querySelector("#assign-agent"),
   assignTask: document.querySelector("#assign-task"),
   assignButton: document.querySelector("#assign-button"),
@@ -90,7 +97,7 @@ function render() {
   renderChannels(channels);
   renderAgents(agents);
   renderMessages();
-  renderMentions(agents);
+  renderMentions(availableMentionAgents(current, agents));
   renderDaemon(daemons);
   renderChannelSettings(current, agents);
   renderAssign(agents);
@@ -316,6 +323,127 @@ function renderMentions(agents) {
   }
 }
 
+function availableMentionAgents(channel, agents) {
+  if (!channel) return agents;
+  const members = new Set(channel.memberIds || []);
+  const channelAgents = agents.filter((agent) => members.has(agent.id));
+  return channelAgents.length ? channelAgents : agents;
+}
+
+function currentMentionAgents() {
+  if (!state.snapshot) return [];
+  const channel = state.snapshot.channels.find((candidate) => candidate.id === state.channelId);
+  return availableMentionAgents(channel, state.snapshot.agents || []);
+}
+
+function updateMentionSuggestions() {
+  const match = activeMentionToken();
+  if (!match) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  const query = match.query.toLowerCase();
+  if (!state.mention.active || state.mention.query !== match.query || state.mention.start !== match.start) {
+    state.mention.selected = 0;
+  }
+  state.mention.active = true;
+  state.mention.start = match.start;
+  state.mention.query = match.query;
+
+  const matches = currentMentionAgents()
+    .filter((agent) => agent.name.toLowerCase().includes(query) || agent.id.toLowerCase().includes(query))
+    .slice(0, 8);
+
+  if (matches.length === 0) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  if (state.mention.selected >= matches.length) state.mention.selected = 0;
+  els.mentionSuggestions.hidden = false;
+  els.mentionSuggestions.innerHTML = matches
+    .map((agent, index) => mentionSuggestionHTML(agent, index === state.mention.selected))
+    .join("");
+
+  els.mentionSuggestions.querySelectorAll("[data-agent-id]").forEach((button, index) => {
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      selectMention(matches[index]);
+    });
+  });
+}
+
+function activeMentionToken() {
+  const cursor = els.input.selectionStart || 0;
+  const text = els.input.value.slice(0, cursor);
+  const start = text.lastIndexOf("@");
+  if (start === -1) return null;
+  const before = start === 0 ? "" : text[start - 1];
+  if (before && /[a-z0-9_-]/i.test(before)) return null;
+  const query = text.slice(start + 1);
+  if (/\s/.test(query) || query.includes("@")) return null;
+  return { start, end: cursor, query };
+}
+
+function mentionSuggestionHTML(agent, selected) {
+  return `
+    <button type="button" class="mention-suggestion ${selected ? "active" : ""}" data-agent-id="${escapeHTML(agent.id)}">
+      <span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span>
+      <span>
+        <strong>@${escapeHTML(agent.name)}</strong>
+        <small>${escapeHTML(runtimeLabel(agent))}</small>
+      </span>
+    </button>`;
+}
+
+function hideMentionSuggestions() {
+  state.mention.active = false;
+  state.mention.start = -1;
+  state.mention.query = "";
+  state.mention.selected = 0;
+  els.mentionSuggestions.hidden = true;
+  els.mentionSuggestions.innerHTML = "";
+}
+
+function selectMention(agent) {
+  const match = activeMentionToken();
+  if (!match) return;
+  const before = els.input.value.slice(0, match.start);
+  const after = els.input.value.slice(match.end);
+  const mention = `@${agent.name.replace(/\s+/g, "-")} `;
+  const value = `${before}${mention}${after}`;
+  const cursor = before.length + mention.length;
+  els.input.value = value;
+  els.input.setSelectionRange(cursor, cursor);
+  hideMentionSuggestions();
+  els.input.focus();
+}
+
+function currentMentionMatches() {
+  const match = activeMentionToken();
+  if (!match) return [];
+  const query = match.query.toLowerCase();
+  return currentMentionAgents()
+    .filter((agent) => agent.name.toLowerCase().includes(query) || agent.id.toLowerCase().includes(query))
+    .slice(0, 8);
+}
+
+function selectedMentionAgent() {
+  const matches = currentMentionMatches();
+  return matches[state.mention.selected] || matches[0] || null;
+}
+
+function moveMentionSelection(delta) {
+  const matches = currentMentionMatches();
+  if (matches.length === 0) {
+    hideMentionSuggestions();
+    return;
+  }
+  state.mention.selected = (state.mention.selected + delta + matches.length) % matches.length;
+  updateMentionSuggestions();
+}
+
 function renderDaemon(daemons) {
   const online = daemons.filter((daemon) => daemon.status === "online");
   els.daemonChip.textContent = online.length ? `${online.length} daemon online` : "daemon offline";
@@ -374,6 +502,7 @@ els.composer.addEventListener("submit", async (event) => {
   const text = els.input.value.trim();
   if (!text) return;
   els.input.value = "";
+  hideMentionSuggestions();
   try {
     await api("/api/messages", {
       method: "POST",
@@ -382,6 +511,35 @@ els.composer.addEventListener("submit", async (event) => {
   } catch (error) {
     alert(error.message);
   }
+});
+
+els.input.addEventListener("input", updateMentionSuggestions);
+els.input.addEventListener("click", updateMentionSuggestions);
+els.input.addEventListener("keyup", (event) => {
+  if (["ArrowUp", "ArrowDown", "Enter", "Tab", "Escape"].includes(event.key)) return;
+  updateMentionSuggestions();
+});
+els.input.addEventListener("keydown", (event) => {
+  if (els.mentionSuggestions.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    hideMentionSuggestions();
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    moveMentionSelection(event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
+  if (event.key === "Enter" || event.key === "Tab") {
+    const selected = selectedMentionAgent();
+    if (!selected) return;
+    event.preventDefault();
+    selectMention(selected);
+  }
+});
+els.input.addEventListener("blur", () => {
+  window.setTimeout(hideMentionSuggestions, 120);
 });
 
 els.assignButton.addEventListener("click", async () => {

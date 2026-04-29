@@ -52,7 +52,10 @@
         <form id="composer" class="composer">
           <div id="mention-row" class="mention-row"></div>
           <div class="compose-row">
-            <textarea id="message-input" rows="2" placeholder="Message humans and agents. Try @Ada or /assign Ada ..." required></textarea>
+            <div class="compose-input-wrap">
+              <textarea id="message-input" rows="2" placeholder="Message humans and agents. Try @Ada or /assign Ada ..." required></textarea>
+              <div id="mention-suggestions" class="mention-suggestions" hidden></div>
+            </div>
             <button type="submit">Send</button>
           </div>
         </form>
