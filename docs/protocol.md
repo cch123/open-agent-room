@@ -82,6 +82,7 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 14. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
 15. Agent replies are visible messages and also become protocol events in the inspector.
 16. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
+17. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
 
 ## Daemon Handshake
 

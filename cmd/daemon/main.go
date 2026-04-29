@@ -439,7 +439,7 @@ func buildRunnerPrompt(request runnerRequest) string {
 			}
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "\nCollaboration rule: This is turn %d of an agent-to-agent thread. During peer discussion, keep the reply short, concrete, and under 8 lines; do not paste the full proposal or long documentation yet. If you still need peer input, explicitly mention the other participant with @Name and ask or answer them directly. Do not mention @You until the peer discussion has converged or you have a concrete final proposal. If the solution is settled, stop mentioning peer agents, mention @You, and provide the final proposal as a polished Markdown document.\n\n", request.ThreadDepth+1)
+		fmt.Fprintf(&b, "\nCollaboration rule: This is turn %d of an agent-to-agent thread. During peer discussion, keep the reply short, concrete, and under 8 lines; do not paste the full proposal or long documentation yet. If you still need peer input, explicitly mention the other participant with @Name and ask or answer them directly. Do not mention @You until the peer discussion has converged or you have a concrete final proposal. If the solution is settled, stop mentioning peer agents, provide only the final Markdown document between these exact markers, then mention @You after the end marker with a short handoff:\n<<<MARKDOWN_DOCUMENT>>>\n# Title\n...\n<<<END_MARKDOWN_DOCUMENT>>>\nAny handoff note, caveat, or @You message must be outside the markers, after <<<END_MARKDOWN_DOCUMENT>>>.\n\n", request.ThreadDepth+1)
 	}
 	if len(request.Recent) > 0 {
 		b.WriteString("Recent channel context:\n")

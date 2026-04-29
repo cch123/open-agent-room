@@ -10,6 +10,9 @@ const state = {
   },
 };
 
+const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
+const markdownDocumentEndMarker = "<<<END_MARKDOWN_DOCUMENT>>>";
+
 const runtimeModels = {
   codex: [
     ["", "CLI default"],
@@ -214,6 +217,7 @@ function renderMessageContent(message) {
 function isMarkdownDocumentMessage(message) {
   if (message.authorKind !== "agent") return false;
   const text = message.text || "";
+  if (text.includes(markdownDocumentStartMarker)) return true;
   if (text.length < 900) return false;
   const signals = [
     /^#{1,3}\s+/m,
@@ -229,6 +233,8 @@ function isMarkdownDocumentMessage(message) {
 
 function markdownDocumentParts(message) {
   const text = message.text || "";
+  const marked = markedMarkdownDocumentParts(text);
+  if (marked) return marked;
   if (!isMarkdownDocumentMessage(message)) {
     return { before: text, document: "", after: "" };
   }
@@ -237,11 +243,88 @@ function markdownDocumentParts(message) {
   if (start <= 0) {
     return { before: "", document: text.trim(), after: "" };
   }
+  const legacy = legacyMarkdownDocumentParts(lines, start);
+  if (legacy.document) return legacy;
   return {
     before: lines.slice(0, start).join("\n").trim(),
     document: lines.slice(start).join("\n").trim(),
     after: "",
   };
+}
+
+function markedMarkdownDocumentParts(text) {
+  const start = text.indexOf(markdownDocumentStartMarker);
+  if (start === -1) return null;
+  const bodyStart = start + markdownDocumentStartMarker.length;
+  const end = text.indexOf(markdownDocumentEndMarker, bodyStart);
+  if (end === -1) {
+    return {
+      before: text.slice(0, start).trim(),
+      document: text.slice(bodyStart).trim(),
+      after: "",
+    };
+  }
+  return {
+    before: text.slice(0, start).trim(),
+    document: text.slice(bodyStart, end).trim(),
+    after: text.slice(end + markdownDocumentEndMarker.length).trim(),
+  };
+}
+
+function legacyMarkdownDocumentParts(lines, start) {
+  let documentLines = lines.slice(start);
+  let afterLines = [];
+  const handoff = trailingHandoffLine(documentLines);
+  if (handoff !== -1) {
+    let split = handoff;
+    const previous = previousNonEmptyLine(documentLines, handoff - 1);
+    if (previous !== -1 && isConversationalTailLine(documentLines[previous])) {
+      split = previous;
+    }
+    afterLines = documentLines.slice(split);
+    documentLines = documentLines.slice(0, split);
+  }
+  return {
+    before: lines.slice(0, start).join("\n").trim(),
+    document: documentLines.join("\n").trim(),
+    after: afterLines.join("\n").trim(),
+  };
+}
+
+function trailingHandoffLine(lines) {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) continue;
+    return /^@You\b/.test(trimmed) ? index : -1;
+  }
+  return -1;
+}
+
+function previousNonEmptyLine(lines, start) {
+  for (let index = start; index >= 0; index -= 1) {
+    if (lines[index].trim()) return index;
+  }
+  return -1;
+}
+
+function isConversationalTailLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed || isMarkdownStructuralLine(trimmed)) return false;
+  if (/^@[A-Za-z0-9_-]+\b/.test(trimmed)) return true;
+  if (/^(唯一分歧|最后|结论|补充|备注|注意)[:：]/.test(trimmed)) return true;
+  return false;
+}
+
+function isMarkdownStructuralLine(trimmed) {
+  return (
+    /^#{1,6}\s+/.test(trimmed) ||
+    /^[-*]\s+/.test(trimmed) ||
+    /^\d+\.\s+/.test(trimmed) ||
+    /^```/.test(trimmed) ||
+    /^\|.+\|$/.test(trimmed) ||
+    /^\*\*[^*]+\*\*$/.test(trimmed) ||
+    trimmed === "---"
+  );
 }
 
 function markdownDocumentStartLine(lines) {
