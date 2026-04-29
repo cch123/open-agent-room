@@ -40,6 +40,7 @@ func (s *Store) load() error {
 	if s.state.Meta.ServerID == "" {
 		s.state.Meta.ServerID = "srv_local"
 	}
+	s.ensureAgentRuntimeDefaultsLocked()
 	return nil
 }
 
@@ -126,7 +127,7 @@ func (s *Store) AddChannel(name, topic string) (protocol.Channel, error) {
 	return ch, s.saveLocked()
 }
 
-func (s *Store) AddAgent(name, persona string) (protocol.Agent, error) {
+func (s *Store) AddAgent(name, persona, runtimeName, model string) (protocol.Agent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	name = strings.TrimSpace(name)
@@ -137,6 +138,8 @@ func (s *Store) AddAgent(name, persona string) (protocol.Agent, error) {
 		ID:           "agent_" + slug(name),
 		Name:         name,
 		Persona:      strings.TrimSpace(persona),
+		Runtime:      normalizeRuntime(runtimeName),
+		Model:        strings.TrimSpace(model),
 		Status:       "waiting",
 		Capabilities: []string{"reply", "remember", "tasks"},
 		Color:        agentColor(len(s.state.Agents)),
@@ -306,8 +309,8 @@ func DefaultState() protocol.State {
 			{ID: "chan_build-room", Name: "build-room", Topic: "Implementation tasks, reviews, and handoffs", MemberIDs: []string{"usr_you", "agent_ada", "agent_lin"}},
 		},
 		Agents: []protocol.Agent{
-			{ID: "agent_ada", Name: "Ada", Persona: "Systems designer who turns rough requests into concrete plans.", Status: "waiting", Capabilities: []string{"plan", "review", "remember"}, Color: "#0f766e"},
-			{ID: "agent_lin", Name: "Lin", Persona: "Implementation agent focused on small verified changes.", Status: "waiting", Capabilities: []string{"implement", "test", "summarize"}, Color: "#b45309"},
+			{ID: "agent_ada", Name: "Ada", Persona: "Systems designer who turns rough requests into concrete plans.", Runtime: "codex", Status: "waiting", Capabilities: []string{"plan", "review", "remember"}, Color: "#0f766e"},
+			{ID: "agent_lin", Name: "Lin", Persona: "Implementation agent focused on small verified changes.", Runtime: "codex", Status: "waiting", Capabilities: []string{"implement", "test", "summarize"}, Color: "#b45309"},
 		},
 		Messages: []protocol.Message{
 			{ID: protocol.NewID("msg"), ChannelID: "chan_general", AuthorKind: "system", AuthorID: "system", AuthorName: "System", Text: "Workspace created. Connect the local daemon, then mention @Ada or @Lin.", Kind: "system", Timestamp: now},
@@ -356,4 +359,24 @@ func slug(value string) string {
 func agentColor(idx int) string {
 	colors := []string{"#0f766e", "#b45309", "#4f46e5", "#be123c", "#0369a1", "#7c2d12"}
 	return colors[idx%len(colors)]
+}
+
+func (s *Store) ensureAgentRuntimeDefaultsLocked() {
+	for i := range s.state.Agents {
+		s.state.Agents[i].Runtime = normalizeRuntime(s.state.Agents[i].Runtime)
+		s.state.Agents[i].Model = strings.TrimSpace(s.state.Agents[i].Model)
+	}
+}
+
+func normalizeRuntime(runtimeName string) string {
+	switch strings.ToLower(strings.TrimSpace(runtimeName)) {
+	case "claude":
+		return "claude"
+	case "demo":
+		return "demo"
+	case "codex", "":
+		return "codex"
+	default:
+		return "codex"
+	}
 }

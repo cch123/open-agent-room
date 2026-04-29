@@ -11,7 +11,8 @@ This project does not reuse Slock branding, assets, private APIs, or source code
 - Browser updates over Server-Sent Events.
 - Local daemon bridge over WebSocket at `/daemon`.
 - JSON envelope protocol for messages, task assignment, presence, memory, and replies.
-- A local daemon that auto-detects Codex CLI and uses it as the default agent runner.
+- A Create Agent flow with per-agent runtime and model selection.
+- A local daemon that can run Codex CLI, Claude Code, or a deterministic demo runtime per agent.
 - A deterministic demo fallback for machines without a local agent CLI.
 - Single Go binary server with embedded frontend assets.
 
@@ -29,7 +30,7 @@ In another terminal, connect the daemon:
 go run ./cmd/daemon
 ```
 
-By default this uses `codex exec` when the Codex CLI is available. If Codex is not installed or authenticated, the daemon explicitly falls back to demo mode.
+By default the daemon honors each agent's selected runtime. Create an agent in the sidebar, choose `Codex`, `Claude`, or `Demo fallback`, and optionally choose or type a model name. Existing seed agents default to Codex.
 
 Then mention an agent in chat, for example:
 
@@ -37,7 +38,7 @@ Then mention an agent in chat, for example:
 @Ada draft a release checklist for this prototype
 ```
 
-To force a custom runner that receives structured JSON on stdin:
+To force a custom runner for every agent that receives structured JSON on stdin:
 
 ```bash
 OPEN_AGENT_RUNNER='go run ./examples/echo-runner' go run ./cmd/daemon
@@ -64,8 +65,8 @@ go build -o open-agent-daemon ./cmd/daemon
 | `SLOCK_TOKEN` | `dev-token` | Shared daemon token for local development. |
 | `SLOCK_SERVER_URL` | `ws://localhost:8787/daemon` | Daemon WebSocket URL. |
 | `SLOCK_DAEMON_HOME` | `.openslock-daemon` in the current directory | Demo daemon memory directory. |
-| `OPEN_AGENT_RUNNER` | `auto` | `auto` uses Codex CLI if present. Use `demo` to force fallback, or provide a local command. |
-| `OPEN_AGENT_RUNNER_FORMAT` | `json` | Runner stdin format. Use `prompt` for general-purpose CLI agents. |
+| `OPEN_AGENT_RUNNER` | `auto` | `auto` uses each agent's runtime selection. Use `demo` to force fallback, or provide a local command for every agent. |
+| `OPEN_AGENT_RUNNER_FORMAT` | `json` | Custom runner stdin format. Use `prompt` for general-purpose CLI agents. |
 | `OPEN_AGENT_RUNNER_TIMEOUT` | `2m` | Timeout for the local runner command. |
 | `OPEN_AGENT_RUNNER_WORKDIR` | `.` | Working directory for the local runner command. |
 

@@ -221,12 +221,14 @@ func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name    string `json:"name"`
 		Persona string `json:"persona"`
+		Runtime string `json:"runtime"`
+		Model   string `json:"model"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	agent, err := a.store.AddAgent(req.Name, req.Persona)
+	agent, err := a.store.AddAgent(req.Name, req.Persona, req.Runtime, req.Model)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

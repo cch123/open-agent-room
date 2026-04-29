@@ -4,6 +4,26 @@ const state = {
   selectedEventId: null,
 };
 
+const runtimeModels = {
+  codex: [
+    ["", "CLI default"],
+    ["gpt-5.3-codex", "GPT-5.3 Codex"],
+    ["gpt-5.3-codex-spark", "GPT-5.3 Codex Spark"],
+    ["gpt-5.4", "GPT-5.4"],
+    ["gpt-5.4-mini", "GPT-5.4 Mini"],
+    ["__custom", "Custom..."],
+  ],
+  claude: [
+    ["", "CLI default"],
+    ["sonnet", "Sonnet"],
+    ["opus", "Opus"],
+    ["claude-sonnet-4-6", "Claude Sonnet 4.6"],
+    ["claude-opus-4-7", "Claude Opus 4.7"],
+    ["__custom", "Custom..."],
+  ],
+  demo: [["", "No model"]],
+};
+
 const els = {
   channelList: document.querySelector("#channel-list"),
   agentList: document.querySelector("#agent-list"),
@@ -21,6 +41,12 @@ const els = {
   eventDetail: document.querySelector("#event-detail"),
   eventCount: document.querySelector("#event-count"),
   agentDialog: document.querySelector("#agent-dialog"),
+  agentName: document.querySelector("#agent-name"),
+  agentPersona: document.querySelector("#agent-persona"),
+  agentRuntime: document.querySelector("#agent-runtime"),
+  agentModel: document.querySelector("#agent-model"),
+  agentModelCustom: document.querySelector("#agent-model-custom"),
+  agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
   channelDialog: document.querySelector("#channel-dialog"),
 };
 
@@ -83,7 +109,8 @@ function renderAgents(agents) {
   for (const agent of agents) {
     const button = document.createElement("button");
     button.className = "agent-item";
-    button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(agent.status)} · ${escapeHTML(agent.persona)}</span></span>`;
+    const meta = `${agent.status} · ${runtimeLabel(agent)} · ${agent.persona}`;
+    button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
       insertMention(agent.name);
     });
@@ -199,14 +226,23 @@ els.assignButton.addEventListener("click", async () => {
 document.querySelector("#new-agent").addEventListener("click", () => els.agentDialog.showModal());
 document.querySelector("#new-channel").addEventListener("click", () => els.channelDialog.showModal());
 
+els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
+els.agentModel.addEventListener("change", updateCustomModelVisibility);
+
 document.querySelector("#agent-create").addEventListener("click", async (event) => {
   event.preventDefault();
-  const name = document.querySelector("#agent-name").value.trim();
-  const persona = document.querySelector("#agent-persona").value.trim();
+  const name = els.agentName.value.trim();
+  const persona = els.agentPersona.value.trim();
+  const runtime = els.agentRuntime.value;
+  const selectedModel = els.agentModel.value;
+  const model = selectedModel === "__custom" ? els.agentModelCustom.value.trim() : selectedModel;
   if (!name) return;
-  await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona }) });
-  document.querySelector("#agent-name").value = "";
-  document.querySelector("#agent-persona").value = "";
+  await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona, runtime, model }) });
+  els.agentName.value = "";
+  els.agentPersona.value = "";
+  els.agentRuntime.value = "codex";
+  els.agentModelCustom.value = "";
+  populateModelOptions("codex");
   els.agentDialog.close();
 });
 
@@ -226,6 +262,28 @@ function insertMention(name) {
   const suffix = els.input.value && !els.input.value.endsWith(" ") ? " " : "";
   els.input.value += `${suffix}@${name.replace(/\s+/g, "-")} `;
   els.input.focus();
+}
+
+function populateModelOptions(runtime) {
+  const options = runtimeModels[runtime] || runtimeModels.codex;
+  els.agentModel.innerHTML = "";
+  for (const [value, label] of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    els.agentModel.append(option);
+  }
+  updateCustomModelVisibility();
+}
+
+function updateCustomModelVisibility() {
+  els.agentModelCustomRow.hidden = els.agentModel.value !== "__custom";
+}
+
+function runtimeLabel(agent) {
+  const runtime = agent.runtime || "codex";
+  const model = agent.model || "default";
+  return `${runtime}/${model}`;
 }
 
 function initials(name = "?") {
@@ -257,3 +315,5 @@ function escapeHTML(value = "") {
 load().catch((error) => {
   document.body.innerHTML = `<pre>${escapeHTML(error.message)}</pre>`;
 });
+
+populateModelOptions("codex");

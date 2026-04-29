@@ -69,6 +69,7 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 3. `/assign <agent> <task>` creates a visible task message and sends `task.assigned`.
 4. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
 5. Agent replies are visible messages and also become protocol events in the inspector.
+6. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
 
 ## Daemon Handshake
 
@@ -109,19 +110,25 @@ Memory is deliberately small and explicit in this prototype. Agents can attach s
 
 ## Local Runner Contract
 
-The daemon executes a real local agent command. By default, `OPEN_AGENT_RUNNER=auto` detects Codex CLI and uses:
+The daemon executes a real local agent command. By default, `OPEN_AGENT_RUNNER=auto` honors the agent's selected runtime:
 
-```bash
-codex --ask-for-approval never --search exec -C . --sandbox workspace-write --color never --ephemeral -
-```
+| Runtime | Command shape |
+| --- | --- |
+| `codex` | `codex --ask-for-approval never --search exec -C <workdir> --sandbox workspace-write --color never --ephemeral [-m <model>] -` |
+| `claude` | `claude -p --permission-mode acceptEdits --no-session-persistence --output-format text [--model <model>]` |
+| `demo` | Built-in deterministic fallback. |
 
-Use `OPEN_AGENT_RUNNER=demo` to force the built-in fallback. Use a custom command when you want to connect another local agent:
+Use `OPEN_AGENT_RUNNER=demo` to force the built-in fallback for every agent.
+
+Use a custom command when you want to connect another local agent:
 
 ```bash
 OPEN_AGENT_RUNNER='your-agent-command --flags' OPEN_AGENT_RUNNER_FORMAT=json go run ./cmd/daemon
 ```
 
-For every routed `agent.message` or `task.assigned` event, the daemon starts the runner, writes this JSON request to stdin, and treats stdout as the visible `agent.reply`:
+For every routed `agent.message` or `task.assigned` event, the daemon starts the chosen runner, writes the request to stdin, and treats stdout as the visible `agent.reply`.
+
+Custom `json` runners receive this request:
 
 ```json
 {
@@ -132,7 +139,9 @@ For every routed `agent.message` or `task.assigned` event, the daemon starts the
   "agent": {
     "id": "agent_ada",
     "name": "Ada",
-    "persona": "Systems designer..."
+    "persona": "Systems designer...",
+    "runtime": "codex",
+    "model": "gpt-5.3-codex"
   },
   "memories": ["prefer Go standard library"],
   "recent": [],
@@ -149,6 +158,8 @@ The runner also receives useful environment variables:
 | `OPEN_AGENT_CHANNEL_ID` | Routed channel id. |
 | `OPEN_AGENT_ID` | Agent id. |
 | `OPEN_AGENT_NAME` | Agent display name. |
+| `OPEN_AGENT_RUNTIME` | Agent runtime selection. |
+| `OPEN_AGENT_MODEL` | Agent model selection, if set. |
 
 For general CLI agents that expect a prompt rather than structured JSON, start the daemon with:
 
@@ -156,4 +167,4 @@ For general CLI agents that expect a prompt rather than structured JSON, start t
 go run ./cmd/daemon --runner 'codex --ask-for-approval never --search exec -C . --sandbox workspace-write --color never --ephemeral -' --runner-format prompt
 ```
 
-In `prompt` mode, the daemon writes a human-readable prompt containing the agent persona, memories, recent channel context, and task.
+In `prompt` mode, the daemon writes a human-readable prompt containing the agent persona, runtime, model, memories, recent channel context, and task.

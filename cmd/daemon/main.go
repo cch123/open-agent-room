@@ -30,6 +30,8 @@ type daemon struct {
 	memPath       string
 	runner        string
 	runnerFormat  string
+	customRunner  bool
+	forceDemo     bool
 	runnerTimeout time.Duration
 	runnerWorkdir string
 }
@@ -86,14 +88,7 @@ func main() {
 	if d.runnerFormat == "" {
 		d.runnerFormat = "json"
 	}
-	capabilities := []string{"memory", "task-runner"}
-	if d.runner == "" {
-		capabilities = append(capabilities, "demo-agent")
-	} else if strings.Contains(d.runner, "codex exec") {
-		capabilities = append(capabilities, "external-runner", "codex")
-	} else {
-		capabilities = append(capabilities, "external-runner")
-	}
+	capabilities := d.capabilities()
 	hello := protocol.NewEnvelope("", "daemon.hello", protocol.Actor{Kind: "daemon", ID: "local", Name: d.name}, protocol.Scope{Kind: "server", ID: "pending"}, protocol.DaemonHelloPayload{
 		Token:        *tokenFlag,
 		Name:         d.name,
@@ -104,10 +99,12 @@ func main() {
 	}
 
 	log.Printf("daemon connected to %s as %s", *urlFlag, d.name)
-	if d.runner == "" {
-		log.Printf("agent runtime: demo replies only; set OPEN_AGENT_RUNNER or --runner to execute a real local agent command")
+	if d.forceDemo {
+		log.Printf("agent runtime: demo fallback forced")
+	} else if d.runner == "" {
+		log.Printf("agent runtime: per-agent runtime selection enabled")
 	} else {
-		log.Printf("agent runtime: external runner %q with %s stdin", d.runner, d.runnerFormat)
+		log.Printf("agent runtime: custom runner %q with %s stdin", d.runner, d.runnerFormat)
 	}
 	for {
 		var env protocol.Envelope
@@ -213,18 +210,33 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 }
 
 func (d *daemon) buildAgentReply(request runnerRequest) (string, error) {
-	if d.runner == "" {
+	if d.customRunner {
+		return d.runExternalAgent(request, d.runner, d.runnerFormat)
+	}
+	if d.forceDemo {
 		time.Sleep(450 * time.Millisecond)
 		return buildReply(request.Agent, request.Prompt, request.Memories), nil
 	}
-	return d.runExternalAgent(request)
+	command, format, err := d.commandForAgent(request.Agent)
+	if err != nil {
+		if request.Agent.Runtime == "demo" {
+			time.Sleep(450 * time.Millisecond)
+			return buildReply(request.Agent, request.Prompt, request.Memories), nil
+		}
+		return "", err
+	}
+	if command == "" {
+		time.Sleep(450 * time.Millisecond)
+		return buildReply(request.Agent, request.Prompt, request.Memories), nil
+	}
+	return d.runExternalAgent(request, command, format)
 }
 
-func (d *daemon) runExternalAgent(request runnerRequest) (string, error) {
+func (d *daemon) runExternalAgent(request runnerRequest, command, format string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), d.runnerTimeout)
 	defer cancel()
 
-	cmd := shellCommand(ctx, d.runner)
+	cmd := shellCommand(ctx, command)
 	cmd.Dir = d.runnerWorkdir
 	cmd.Env = append(os.Environ(),
 		"OPEN_AGENT_EVENT_TYPE="+request.EventType,
@@ -232,10 +244,12 @@ func (d *daemon) runExternalAgent(request runnerRequest) (string, error) {
 		"OPEN_AGENT_CHANNEL_ID="+request.ChannelID,
 		"OPEN_AGENT_ID="+request.Agent.ID,
 		"OPEN_AGENT_NAME="+request.Agent.Name,
+		"OPEN_AGENT_RUNTIME="+request.Agent.Runtime,
+		"OPEN_AGENT_MODEL="+request.Agent.Model,
 	)
 
 	var stdin bytes.Buffer
-	switch d.runnerFormat {
+	switch format {
 	case "json":
 		if err := json.NewEncoder(&stdin).Encode(request); err != nil {
 			return "", err
@@ -243,7 +257,7 @@ func (d *daemon) runExternalAgent(request runnerRequest) (string, error) {
 	case "prompt":
 		stdin.WriteString(buildRunnerPrompt(request))
 	default:
-		return "", fmt.Errorf("unsupported runner format %q", d.runnerFormat)
+		return "", fmt.Errorf("unsupported runner format %q", format)
 	}
 	cmd.Stdin = &stdin
 
@@ -281,18 +295,81 @@ func (d *daemon) runExternalAgent(request runnerRequest) (string, error) {
 
 func (d *daemon) configureRunner() {
 	switch strings.ToLower(strings.TrimSpace(d.runner)) {
-	case "", "demo", "none", "off":
+	case "", "auto":
 		d.runner = ""
-	case "auto":
+		d.customRunner = false
+		d.forceDemo = false
+		d.runnerFormat = "prompt"
+	case "demo", "none", "off":
+		d.runner = ""
+		d.customRunner = false
+		d.forceDemo = true
+		d.runnerFormat = "prompt"
+	default:
+		d.customRunner = true
+		d.forceDemo = false
+	}
+}
+
+func (d *daemon) capabilities() []string {
+	capabilities := []string{"memory", "task-runner", "demo-agent"}
+	if d.forceDemo {
+		return capabilities
+	}
+	if _, err := exec.LookPath("codex"); err == nil {
+		capabilities = append(capabilities, "codex")
+	}
+	if _, err := exec.LookPath("claude"); err == nil {
+		capabilities = append(capabilities, "claude")
+	}
+	if d.customRunner {
+		capabilities = append(capabilities, "external-runner")
+	}
+	return capabilities
+}
+
+func (d *daemon) commandForAgent(agent protocol.Agent) (string, string, error) {
+	runtimeName := strings.ToLower(strings.TrimSpace(agent.Runtime))
+	if runtimeName == "" {
+		runtimeName = "codex"
+	}
+	switch runtimeName {
+	case "demo":
+		return "", "prompt", nil
+	case "codex":
 		path, err := exec.LookPath("codex")
 		if err != nil {
-			d.runner = ""
-			d.runnerFormat = "json"
-			return
+			return "", "", fmt.Errorf("Codex runtime selected for %s, but codex CLI is not available", agent.Name)
 		}
-		d.runner = fmt.Sprintf("%s --ask-for-approval never --search exec -C %s --sandbox workspace-write --color never --ephemeral -", shellQuote(path), shellQuote(d.runnerWorkdir))
-		d.runnerFormat = "prompt"
+		return d.codexCommand(path, agent.Model), "prompt", nil
+	case "claude":
+		path, err := exec.LookPath("claude")
+		if err != nil {
+			return "", "", fmt.Errorf("Claude runtime selected for %s, but claude CLI is not available", agent.Name)
+		}
+		return d.claudeCommand(path, agent.Model), "prompt", nil
+	default:
+		return "", "", fmt.Errorf("unsupported runtime %q for %s", agent.Runtime, agent.Name)
 	}
+}
+
+func (d *daemon) codexCommand(path, model string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s --ask-for-approval never --search exec -C %s --sandbox workspace-write --color never --ephemeral", shellQuote(path), shellQuote(d.runnerWorkdir))
+	if strings.TrimSpace(model) != "" {
+		fmt.Fprintf(&b, " -m %s", shellQuote(strings.TrimSpace(model)))
+	}
+	b.WriteString(" -")
+	return b.String()
+}
+
+func (d *daemon) claudeCommand(path, model string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s -p --permission-mode acceptEdits --no-session-persistence --output-format text", shellQuote(path))
+	if strings.TrimSpace(model) != "" {
+		fmt.Fprintf(&b, " --model %s", shellQuote(strings.TrimSpace(model)))
+	}
+	return b.String()
 }
 
 func buildRunnerPrompt(request runnerRequest) string {
@@ -300,6 +377,12 @@ func buildRunnerPrompt(request runnerRequest) string {
 	fmt.Fprintf(&b, "You are %s, an agent in Open Agent Room.\n", request.Agent.Name)
 	if request.Agent.Persona != "" {
 		fmt.Fprintf(&b, "Persona: %s\n", request.Agent.Persona)
+	}
+	if request.Agent.Runtime != "" {
+		fmt.Fprintf(&b, "Runtime: %s\n", request.Agent.Runtime)
+	}
+	if request.Agent.Model != "" {
+		fmt.Fprintf(&b, "Model: %s\n", request.Agent.Model)
 	}
 	fmt.Fprintf(&b, "Event type: %s\n", request.EventType)
 	fmt.Fprintf(&b, "Channel ID: %s\n\n", request.ChannelID)

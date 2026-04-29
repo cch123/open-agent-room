@@ -67,6 +67,8 @@ type Agent struct {
 	ID           string       `json:"id"`
 	Name         string       `json:"name"`
 	Persona      string       `json:"persona"`
+	Runtime      string       `json:"runtime"`
+	Model        string       `json:"model,omitempty"`
 	Status       string       `json:"status"`
 	DaemonID     string       `json:"daemonId,omitempty"`
 	Capabilities []string     `json:"capabilities"`

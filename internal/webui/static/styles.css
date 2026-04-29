@@ -441,6 +441,12 @@ dialog::backdrop {
   font-size: 13px;
 }
 
+.runtime-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 menu {
   display: flex;
   justify-content: flex-end;
@@ -482,6 +488,10 @@ menu button:first-child {
   }
 
   .compose-row {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-grid {
     grid-template-columns: 1fr;
   }
 }

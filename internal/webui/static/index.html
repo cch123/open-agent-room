@@ -59,7 +59,7 @@
             <span id="daemon-count">0 online</span>
           </div>
           <code class="command">go run ./cmd/daemon</code>
-          <p class="muted">The daemon receives `agent.message` and `task.assigned`, then replies with `agent.reply` and memory patches.</p>
+          <p class="muted">The daemon receives `agent.message` and `task.assigned`, then routes work to each agent's Codex, Claude, or demo runtime.</p>
         </section>
 
         <section class="panel assign-panel">
@@ -92,6 +92,24 @@
         <label>
           Persona
           <textarea id="agent-persona" rows="3" placeholder="Researcher who turns uncertainty into clear notes."></textarea>
+        </label>
+        <div class="runtime-grid">
+          <label>
+            Runtime
+            <select id="agent-runtime">
+              <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
+              <option value="demo">Demo fallback</option>
+            </select>
+          </label>
+          <label>
+            Model
+            <select id="agent-model"></select>
+          </label>
+        </div>
+        <label id="agent-model-custom-row" hidden>
+          Custom model
+          <input id="agent-model-custom" autocomplete="off" placeholder="provider-model-name" />
         </label>
         <menu>
           <button value="cancel">Cancel</button>
