@@ -40,3 +40,46 @@ func TestBuildRunnerPromptKeepsUTF8ValidForRecentContext(t *testing.T) {
 		t.Fatalf("prompt returned invalid UTF-8")
 	}
 }
+
+func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
+	request := runnerRequest{
+		EventType: "agent.message",
+		ChannelID: "chan_general",
+		Prompt:    "@Lin @ClaudeLocal compare options",
+		Agent: protocol.Agent{
+			ID:   "agent_lin",
+			Name: "Lin",
+		},
+		PeerAgents: []protocol.Agent{
+			{
+				ID:      "agent_claudelocal",
+				Name:    "ClaudeLocal",
+				Persona: "Local Claude runtime",
+			},
+		},
+	}
+
+	got := buildRunnerPrompt(request)
+	for _, want := range []string{
+		"Other agents addressed in the same user message:",
+		"@ClaudeLocal",
+		"Collaboration rule:",
+		"explicitly mention the other participant with @Name",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDemoReplyMentionsPeerAgents(t *testing.T) {
+	got := buildReply(
+		protocol.Agent{ID: "agent_lin", Name: "Lin"},
+		"@Lin @ClaudeLocal compare options",
+		nil,
+		[]protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
+	)
+	if !strings.Contains(got, "@ClaudeLocal") {
+		t.Fatalf("demo reply should mention peer agent:\n%s", got)
+	}
+}

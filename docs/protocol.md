@@ -73,7 +73,7 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 5. If a channel has no active agent and the message has no `@`, it routes to the channel's configured `defaultAgentId`.
 6. If `defaultAgentId` is not set, routing falls back to the first agent in that channel's member list.
 7. New channels include the current agents as members and default to the workspace's first agent.
-8. Messages that mention multiple agents are delivered to all mentioned agents and clear the single active-agent context; the next unmentioned message falls back to the channel default.
+8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants; the daemon prompt tells each runtime to explicitly `@` its peers.
 9. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
 10. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
 11. Agent replies are visible messages and also become protocol events in the inspector.
@@ -151,6 +151,14 @@ Custom `json` runners receive this request:
     "runtime": "codex",
     "model": "gpt-5.3-codex"
   },
+  "peerAgents": [
+    {
+      "id": "agent_lin",
+      "name": "Lin",
+      "persona": "Implementation agent...",
+      "runtime": "codex"
+    }
+  ],
   "memories": ["prefer Go standard library"],
   "recent": [],
   "causationId": "evt_..."

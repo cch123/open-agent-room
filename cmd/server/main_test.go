@@ -93,3 +93,20 @@ func TestResolveAgentRoutesUsesConfiguredChannelDefault(t *testing.T) {
 		t.Fatalf("configured default = %v, want %v", got, want)
 	}
 }
+
+func TestPeerAgentsForExcludesCurrentAgent(t *testing.T) {
+	agents := []protocol.Agent{
+		{ID: "agent_ada", Name: "Ada"},
+		{ID: "agent_lin", Name: "Lin"},
+		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+	}
+
+	got := peerAgentsFor(agents, "agent_lin")
+	want := []protocol.Agent{
+		{ID: "agent_ada", Name: "Ada"},
+		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("peer agents = %v, want %v", got, want)
+	}
+}

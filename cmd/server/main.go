@@ -474,17 +474,24 @@ func (a *app) assignTask(agent protocol.Agent, channelID, task, causationID stri
 }
 
 func (a *app) routeAgentMessages(ch protocol.Channel, msg protocol.Message, agentIDs []string, causationID string) {
+	agents := make([]protocol.Agent, 0, len(agentIDs))
 	for _, id := range agentIDs {
 		agent, ok := a.store.FindAgent(id)
 		if !ok {
 			a.clearActiveAgent(ch.ID, id)
 			continue
 		}
+		agents = append(agents, agent)
+	}
+
+	recent := a.store.RecentMessages(ch.ID, 12)
+	for _, agent := range agents {
 		payload := protocol.AgentMessagePayload{
-			Agent:   agent,
-			Channel: ch,
-			Message: msg,
-			Recent:  a.store.RecentMessages(ch.ID, 12),
+			Agent:      agent,
+			Channel:    ch,
+			Message:    msg,
+			Recent:     recent,
+			PeerAgents: peerAgentsFor(agents, agent.ID),
 		}
 		env := protocol.NewEnvelope(a.store.ServerID(), "agent.message", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "channel", ID: ch.ID}, payload, causationID)
 		if !a.sendToAgent(agent, env) {
@@ -508,6 +515,16 @@ func (a *app) resolveAgentRoutes(ch protocol.Channel, text string, agents []prot
 		}
 	}
 	return agentIDs
+}
+
+func peerAgentsFor(agents []protocol.Agent, agentID string) []protocol.Agent {
+	peers := make([]protocol.Agent, 0, len(agents))
+	for _, agent := range agents {
+		if agent.ID != agentID {
+			peers = append(peers, agent)
+		}
+	}
+	return peers
 }
 
 func defaultAgentForChannel(ch protocol.Channel, agents []protocol.Agent) (string, bool) {

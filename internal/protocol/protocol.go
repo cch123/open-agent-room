@@ -122,10 +122,11 @@ type AgentSpawnPayload struct {
 }
 
 type AgentMessagePayload struct {
-	Agent   Agent     `json:"agent"`
-	Channel Channel   `json:"channel"`
-	Message Message   `json:"message"`
-	Recent  []Message `json:"recent"`
+	Agent      Agent     `json:"agent"`
+	Channel    Channel   `json:"channel"`
+	Message    Message   `json:"message"`
+	Recent     []Message `json:"recent"`
+	PeerAgents []Agent   `json:"peerAgents,omitempty"`
 }
 
 type TaskAssignedPayload struct {

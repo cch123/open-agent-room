@@ -45,6 +45,7 @@ type runnerRequest struct {
 	ChannelID   string             `json:"channelId"`
 	Prompt      string             `json:"prompt"`
 	Agent       protocol.Agent     `json:"agent"`
+	PeerAgents  []protocol.Agent   `json:"peerAgents,omitempty"`
 	Memories    []string           `json:"memories"`
 	Recent      []protocol.Message `json:"recent"`
 	CausationID string             `json:"causationId"`
@@ -145,13 +146,13 @@ func (d *daemon) handle(env protocol.Envelope) error {
 		if err != nil {
 			return err
 		}
-		d.startReply("agent.message", payload.Agent, payload.Channel.ID, payload.Message.Text, payload.Recent, env.ID)
+		d.startReply("agent.message", payload.Agent, payload.Channel.ID, payload.Message.Text, payload.PeerAgents, payload.Recent, env.ID)
 	case "task.assigned":
 		payload, err := protocol.DecodePayload[protocol.TaskAssignedPayload](env)
 		if err != nil {
 			return err
 		}
-		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, env.ID)
+		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, nil, env.ID)
 	case "error":
 		log.Printf("server error: %s", string(env.Payload))
 	default:
@@ -160,10 +161,10 @@ func (d *daemon) handle(env protocol.Envelope) error {
 	return nil
 }
 
-func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, prompt string, recent []protocol.Message, causationID string) {
+func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, recent []protocol.Message, causationID string) {
 	go func() {
 		log.Printf("agent %s handling %s", agent.Name, eventType)
-		if err := d.reply(eventType, agent, channelID, prompt, recent, causationID); err != nil {
+		if err := d.reply(eventType, agent, channelID, prompt, peerAgents, recent, causationID); err != nil {
 			log.Printf("reply %s for %s: %v", eventType, agent.Name, err)
 			if statusErr := d.sendStatus(agent.ID, "idle", causationID); statusErr != nil {
 				log.Printf("reset status for %s: %v", agent.Name, statusErr)
@@ -172,7 +173,7 @@ func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, p
 	}()
 }
 
-func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt string, recent []protocol.Message, causationID string) error {
+func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, recent []protocol.Message, causationID string) error {
 	d.ensureAgent(agent.ID)
 	if err := d.sendStatus(agent.ID, "thinking", causationID); err != nil {
 		return err
@@ -194,13 +195,14 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 		ChannelID:   channelID,
 		Prompt:      prompt,
 		Agent:       agent,
+		PeerAgents:  peerAgents,
 		Memories:    memories,
 		Recent:      recent,
 		CausationID: causationID,
 	}
 	reply, err := d.buildAgentReply(request)
 	if err != nil {
-		reply = fmt.Sprintf("Local runner failed: %v\n\nFalling back to demo runtime.\n\n%s", err, buildReply(agent, prompt, memories))
+		reply = fmt.Sprintf("Local runner failed: %v\n\nFalling back to demo runtime.\n\n%s", err, buildReply(agent, prompt, memories, peerAgents))
 	}
 	replyEnv := d.newEnvelope("agent.reply", protocol.Actor{Kind: "agent", ID: agent.ID, Name: agent.Name}, protocol.Scope{Kind: "channel", ID: channelID}, protocol.AgentReplyPayload{
 		AgentID:   agent.ID,
@@ -246,19 +248,19 @@ func (d *daemon) buildAgentReply(request runnerRequest) (string, error) {
 	}
 	if d.forceDemo {
 		time.Sleep(450 * time.Millisecond)
-		return buildReply(request.Agent, request.Prompt, request.Memories), nil
+		return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 	}
 	command, format, err := d.commandForAgent(request.Agent)
 	if err != nil {
 		if request.Agent.Runtime == "demo" {
 			time.Sleep(450 * time.Millisecond)
-			return buildReply(request.Agent, request.Prompt, request.Memories), nil
+			return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 		}
 		return "", err
 	}
 	if command == "" {
 		time.Sleep(450 * time.Millisecond)
-		return buildReply(request.Agent, request.Prompt, request.Memories), nil
+		return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 	}
 	return d.runExternalAgent(request, command, format)
 }
@@ -424,6 +426,17 @@ func buildRunnerPrompt(request runnerRequest) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(request.PeerAgents) > 0 {
+		b.WriteString("Other agents addressed in the same user message:\n")
+		for _, peer := range request.PeerAgents {
+			fmt.Fprintf(&b, "- @%s", peer.Name)
+			if peer.Persona != "" {
+				fmt.Fprintf(&b, ": %s", peer.Persona)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\nCollaboration rule: Because this is a multi-agent conversation, explicitly mention the other participant with @Name when you respond. If you are handing off, asking a question, agreeing, or disagreeing, make that directed at the peer agent before giving the human-facing conclusion.\n\n")
+	}
 	if len(request.Recent) > 0 {
 		b.WriteString("Recent channel context:\n")
 		for _, message := range request.Recent {
@@ -478,9 +491,14 @@ func (d *daemon) ensureAgent(agentID string) {
 	}
 }
 
-func buildReply(agent protocol.Agent, prompt string, memories []string) string {
+func buildReply(agent protocol.Agent, prompt string, memories []string, peerAgents []protocol.Agent) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s is running in demo fallback mode.\n\n", agent.Name)
+	if len(peerAgents) > 0 {
+		if line := peerMentionLine(peerAgents); line != "" {
+			fmt.Fprintf(&b, "%s\n\n", line)
+		}
+	}
 	fmt.Fprintf(&b, "I received: %s\n\n", compact(prompt, 220))
 	b.WriteString("This fallback response was generated inside the daemon. If you expected a real local agent, start the daemon with `--runner auto` and check the selected CLI runtime.")
 	if len(memories) > 0 {
@@ -488,6 +506,19 @@ func buildReply(agent protocol.Agent, prompt string, memories []string) string {
 		fmt.Fprintf(&b, "\nMemory in scope: %s", compact(latest, 160))
 	}
 	return b.String()
+}
+
+func peerMentionLine(peerAgents []protocol.Agent) string {
+	var mentions []string
+	for _, peer := range peerAgents {
+		if strings.TrimSpace(peer.Name) != "" {
+			mentions = append(mentions, "@"+peer.Name)
+		}
+	}
+	if len(mentions) == 0 {
+		return ""
+	}
+	return "Looping in " + strings.Join(mentions, " ") + " for this multi-agent thread."
 }
 
 func compact(text string, limit int) string {
