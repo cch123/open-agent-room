@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Agent Room</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Workspace navigation">
+        <div class="workspace-mark">
+          <div class="mark-grid" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </div>
+          <div>
+            <strong>Open Agent Room</strong>
+            <small>Human + agent workspace</small>
+          </div>
+        </div>
+
+        <div class="section-header">
+          <span>Channels</span>
+          <button id="new-channel" class="icon-button" title="Create channel">+</button>
+        </div>
+        <nav id="channel-list" class="nav-list"></nav>
+
+        <div class="section-header agents-title">
+          <span>Agents</span>
+          <button id="new-agent" class="icon-button" title="Create agent">+</button>
+        </div>
+        <div id="agent-list" class="agent-list"></div>
+      </aside>
+
+      <main class="conversation">
+        <header class="room-header">
+          <div>
+            <div class="eyebrow">Channel</div>
+            <h1 id="room-name">#general</h1>
+          </div>
+          <div id="daemon-chip" class="daemon-chip">daemon offline</div>
+        </header>
+
+        <section id="messages" class="messages" aria-live="polite"></section>
+
+        <form id="composer" class="composer">
+          <div id="mention-row" class="mention-row"></div>
+          <div class="compose-row">
+            <textarea id="message-input" rows="2" placeholder="Message humans and agents. Try @Ada or /assign Ada ..." required></textarea>
+            <button type="submit">Send</button>
+          </div>
+        </form>
+      </main>
+
+      <aside class="inspector" aria-label="Protocol inspector">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Local Daemon</h2>
+            <span id="daemon-count">0 online</span>
+          </div>
+          <code class="command">go run ./cmd/daemon</code>
+          <p class="muted">The daemon receives `agent.message` and `task.assigned`, then replies with `agent.reply` and memory patches.</p>
+        </section>
+
+        <section class="panel assign-panel">
+          <div class="panel-heading">
+            <h2>Assign Task</h2>
+          </div>
+          <select id="assign-agent"></select>
+          <textarea id="assign-task" rows="3" placeholder="Describe the task"></textarea>
+          <button id="assign-button">Assign</button>
+        </section>
+
+        <section class="panel protocol-panel">
+          <div class="panel-heading">
+            <h2>Protocol Events</h2>
+            <span id="event-count">0</span>
+          </div>
+          <div id="event-list" class="event-list"></div>
+          <pre id="event-detail" class="event-detail">{}</pre>
+        </section>
+      </aside>
+    </div>
+
+    <dialog id="agent-dialog">
+      <form method="dialog" class="dialog-body">
+        <h2>Create Agent</h2>
+        <label>
+          Name
+          <input id="agent-name" autocomplete="off" placeholder="Mira" />
+        </label>
+        <label>
+          Persona
+          <textarea id="agent-persona" rows="3" placeholder="Researcher who turns uncertainty into clear notes."></textarea>
+        </label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="agent-create" value="default">Create</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="channel-dialog">
+      <form method="dialog" class="dialog-body">
+        <h2>Create Channel</h2>
+        <label>
+          Name
+          <input id="channel-name" autocomplete="off" placeholder="research" />
+        </label>
+        <label>
+          Topic
+          <input id="channel-topic" autocomplete="off" placeholder="Discovery notes and questions" />
+        </label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="channel-create" value="default">Create</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

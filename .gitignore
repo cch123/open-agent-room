@@ -1,0 +1,9 @@
+.DS_Store
+data/
+.env
+.openslock-daemon/
+coverage/
+open-agent-room
+open-agent-daemon
+/server
+/daemon
