@@ -166,6 +166,7 @@ button:focus-visible {
   text-transform: uppercase;
 }
 
+.humans-title,
 .agents-title {
   margin-top: 8px;
 }
@@ -189,6 +190,7 @@ button:focus-visible {
 }
 
 .nav-list,
+.human-list,
 .agent-list {
   display: grid;
   gap: 3px;
@@ -196,6 +198,7 @@ button:focus-visible {
 }
 
 .nav-row,
+.human-row,
 .agent-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
@@ -204,6 +207,7 @@ button:focus-visible {
 }
 
 .nav-item,
+.human-item,
 .agent-item {
   width: 100%;
   display: grid;
@@ -219,11 +223,13 @@ button:focus-visible {
 }
 
 .nav-item > span:last-child,
+.human-item > span:last-child,
 .agent-item > span:last-child {
   min-width: 0;
 }
 
 .nav-item.active,
+.human-item:hover,
 .agent-item:hover,
 .nav-item:hover {
   background: var(--surface);
@@ -251,6 +257,8 @@ button:focus-visible {
 
 .nav-row:hover .item-delete,
 .nav-row:focus-within .item-delete,
+.human-row:hover .item-delete,
+.human-row:focus-within .item-delete,
 .agent-row:hover .item-delete,
 .agent-row:focus-within .item-delete {
   opacity: 1;
@@ -280,6 +288,7 @@ button:focus-visible {
 }
 
 .nav-item strong,
+.human-item strong,
 .agent-item strong {
   display: block;
   overflow: hidden;
@@ -287,6 +296,7 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+.human-meta,
 .agent-meta,
 .nav-topic {
   display: block;
@@ -299,10 +309,14 @@ button:focus-visible {
 
 .nav-item:hover strong,
 .nav-item:focus-visible strong,
+.human-item:hover strong,
+.human-item:focus-within strong,
 .agent-item:hover strong,
 .agent-item:focus-visible strong,
 .nav-item:hover .nav-topic,
 .nav-item:focus-visible .nav-topic,
+.human-item:hover .human-meta,
+.human-item:focus-within .human-meta,
 .agent-item:hover .agent-meta,
 .agent-item:focus-visible .agent-meta {
   overflow: visible;
@@ -1001,6 +1015,8 @@ menu button:first-child:hover {
   }
 
   .agents-title,
+  .humans-title,
+  .human-list,
   .agent-list {
     display: none;
   }
@@ -1024,16 +1040,19 @@ menu button:first-child:hover {
   }
 
   .nav-list,
+  .human-list,
   .agent-list {
     padding: 0 8px;
   }
 
   .nav-row,
+  .human-row,
   .agent-row {
     grid-template-columns: minmax(0, 1fr) 26px;
   }
 
   .nav-item,
+  .human-item,
   .agent-item {
     grid-template-columns: 24px minmax(0, 1fr);
     gap: 8px;

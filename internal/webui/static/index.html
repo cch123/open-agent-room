@@ -25,6 +25,12 @@
         </div>
         <nav id="channel-list" class="nav-list"></nav>
 
+        <div class="section-header humans-title">
+          <span>Humans</span>
+          <button id="new-user" class="icon-button" title="Register human">+</button>
+        </div>
+        <div id="user-list" class="human-list"></div>
+
         <div class="section-header agents-title">
           <span>Agents</span>
           <button id="new-agent" class="icon-button" title="Create agent">+</button>
@@ -123,6 +129,20 @@
         <menu>
           <button value="cancel">Cancel</button>
           <button id="agent-create" value="default">Create</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="user-dialog">
+      <form method="dialog" class="dialog-body">
+        <h2>Register Human</h2>
+        <label>
+          Name
+          <input id="user-name" autocomplete="off" placeholder="Taylor" />
+        </label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="user-create" value="default">Register</button>
         </menu>
       </form>
     </dialog>

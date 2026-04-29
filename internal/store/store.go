@@ -40,6 +40,7 @@ func (s *Store) load() error {
 	if s.state.Meta.ServerID == "" {
 		s.state.Meta.ServerID = "srv_local"
 	}
+	s.ensureUserDefaultsLocked()
 	s.ensureAgentRuntimeDefaultsLocked()
 	s.ensureChannelDefaultsLocked()
 	return nil
@@ -117,7 +118,10 @@ func (s *Store) AddChannel(name, topic string) (protocol.Channel, error) {
 	if name == "" {
 		return protocol.Channel{}, errors.New("channel name is required")
 	}
-	memberIDs := []string{"usr_you"}
+	var memberIDs []string
+	for _, user := range s.state.Users {
+		memberIDs = appendUnique(memberIDs, user.ID)
+	}
 	for _, agent := range s.state.Agents {
 		memberIDs = appendUnique(memberIDs, agent.ID)
 	}
@@ -135,6 +139,56 @@ func (s *Store) AddChannel(name, topic string) (protocol.Channel, error) {
 	s.state.Channels = append(s.state.Channels, ch)
 	s.touchLocked()
 	return ch, s.saveLocked()
+}
+
+func (s *Store) AddUser(name string) (protocol.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return protocol.User{}, errors.New("human name is required")
+	}
+	user := protocol.User{
+		ID:    "usr_" + slugWithFallback(name, "usr"),
+		Name:  name,
+		Color: userColor(len(s.state.Users)),
+	}
+	for _, existing := range s.state.Users {
+		if existing.ID == user.ID {
+			user.ID = protocol.NewID("usr")
+			break
+		}
+	}
+	s.state.Users = append(s.state.Users, user)
+	for i := range s.state.Channels {
+		s.state.Channels[i].MemberIDs = appendUnique(s.state.Channels[i].MemberIDs, user.ID)
+	}
+	s.touchLocked()
+	return user, s.saveLocked()
+}
+
+func (s *Store) DeleteUser(id string) (protocol.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "@"))
+	if id == "" {
+		return protocol.User{}, errors.New("human id is required")
+	}
+	for i, user := range s.state.Users {
+		if !userMatches(user, id) {
+			continue
+		}
+		if user.ID == s.state.CurrentUserID || user.ID == "usr_you" {
+			return protocol.User{}, errors.New("cannot delete the current human")
+		}
+		s.state.Users = append(s.state.Users[:i], s.state.Users[i+1:]...)
+		for j := range s.state.Channels {
+			s.state.Channels[j].MemberIDs = removeValue(s.state.Channels[j].MemberIDs, user.ID)
+		}
+		s.touchLocked()
+		return user, s.saveLocked()
+	}
+	return protocol.User{}, errors.New("human not found")
 }
 
 func (s *Store) DeleteChannel(id string) (protocol.Channel, error) {
@@ -438,7 +492,15 @@ func agentMatches(agent protocol.Agent, id string) bool {
 	return strings.ToLower(agent.ID) == id || strings.ToLower(agent.Name) == id || strings.TrimPrefix(strings.ToLower(agent.ID), "agent_") == id
 }
 
+func userMatches(user protocol.User, id string) bool {
+	return strings.ToLower(user.ID) == id || strings.ToLower(user.Name) == id || strings.TrimPrefix(strings.ToLower(user.ID), "usr_") == id
+}
+
 func slug(value string) string {
+	return slugWithFallback(value, "agent")
+}
+
+func slugWithFallback(value, prefix string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	var b strings.Builder
 	lastDash := false
@@ -455,7 +517,7 @@ func slug(value string) string {
 	}
 	out := strings.Trim(b.String(), "-")
 	if out == "" {
-		return protocol.NewID("agent")
+		return strings.TrimPrefix(protocol.NewID(prefix), prefix+"_")
 	}
 	return out
 }
@@ -463,6 +525,28 @@ func slug(value string) string {
 func agentColor(idx int) string {
 	colors := []string{"#0f766e", "#b45309", "#4f46e5", "#be123c", "#0369a1", "#7c2d12"}
 	return colors[idx%len(colors)]
+}
+
+func userColor(idx int) string {
+	colors := []string{"#2563eb", "#7c3aed", "#0891b2", "#9333ea", "#dc2626", "#475569"}
+	return colors[idx%len(colors)]
+}
+
+func (s *Store) ensureUserDefaultsLocked() {
+	if s.state.CurrentUserID == "" {
+		s.state.CurrentUserID = "usr_you"
+	}
+	for i := range s.state.Users {
+		if s.state.Users[i].Color == "" {
+			s.state.Users[i].Color = userColor(i)
+		}
+	}
+	for _, user := range s.state.Users {
+		if user.ID == s.state.CurrentUserID {
+			return
+		}
+	}
+	s.state.Users = append([]protocol.User{{ID: s.state.CurrentUserID, Name: "You", Color: userColor(0)}}, s.state.Users...)
 }
 
 func (s *Store) ensureAgentRuntimeDefaultsLocked() {
@@ -491,6 +575,9 @@ func (s *Store) ensureChannelDefaultsLocked() {
 		agentIDs[agent.ID] = true
 	}
 	for i := range s.state.Channels {
+		for _, user := range s.state.Users {
+			s.state.Channels[i].MemberIDs = appendUnique(s.state.Channels[i].MemberIDs, user.ID)
+		}
 		if agentIDs[s.state.Channels[i].DefaultAgentID] {
 			s.state.Channels[i].MemberIDs = appendUnique(s.state.Channels[i].MemberIDs, s.state.Channels[i].DefaultAgentID)
 			continue

@@ -54,3 +54,63 @@ func TestDeleteAgentUpdatesChannelDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestAddUserJoinsExistingAndNewChannels(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	user, err := st.AddUser("Taylor")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := st.Snapshot()
+	for _, ch := range snapshot.Channels {
+		if !contains(ch.MemberIDs, user.ID) {
+			t.Fatalf("channel %s missing registered human %s", ch.ID, user.ID)
+		}
+	}
+
+	ch, err := st.AddChannel("planning", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(ch.MemberIDs, user.ID) {
+		t.Fatalf("new channel missing registered human %s", user.ID)
+	}
+}
+
+func TestDeleteUserRemovesMembershipButKeepsCurrentHuman(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := st.AddUser("Taylor")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.DeleteUser(user.ID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := st.Snapshot()
+	for _, ch := range snapshot.Channels {
+		if contains(ch.MemberIDs, user.ID) {
+			t.Fatalf("channel %s still contains deleted human %s", ch.ID, user.ID)
+		}
+	}
+	if _, err := st.DeleteUser("usr_you"); err == nil {
+		t.Fatal("expected deleting current human to fail")
+	}
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}

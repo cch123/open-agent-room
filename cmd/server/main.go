@@ -100,6 +100,8 @@ func main() {
 	mux.HandleFunc("/api/messages", a.handleMessages)
 	mux.HandleFunc("/api/channels", a.handleChannels)
 	mux.HandleFunc("/api/channels/", a.handleChannelSubroutes)
+	mux.HandleFunc("/api/users", a.handleUsers)
+	mux.HandleFunc("/api/users/", a.handleUserSubroutes)
 	mux.HandleFunc("/api/agents", a.handleAgents)
 	mux.HandleFunc("/api/agents/", a.handleAgentSubroutes)
 	mux.HandleFunc("/daemon", a.handleDaemon)
@@ -275,6 +277,50 @@ func (a *app) handleChannelSubroutes(w http.ResponseWriter, r *http.Request) {
 	_ = a.store.AddEnvelope(env)
 	a.broadcast()
 	writeJSON(w, http.StatusOK, ch)
+}
+
+func (a *app) handleUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, err := a.store.AddUser(req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "user.created", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, user, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusCreated, user)
+}
+
+func (a *app) handleUserSubroutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/users/"), "/")
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w)
+		return
+	}
+	if path == "" || strings.Contains(path, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	user, err := a.store.DeleteUser(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "user.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, user, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusOK, user)
 }
 
 func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {

@@ -54,6 +54,8 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 | `daemon.ready` | Server to daemon | Confirm registration and return server metadata. |
 | `agent.spawn` | Server to daemon | Ask a daemon to host or hydrate an agent. |
 | `agent.ready` | Daemon to server | Confirm the agent runtime is available. |
+| `user.created` | Server | Record that a human participant was registered. |
+| `user.deleted` | Server | Record that a human participant was removed from the workspace roster. |
 | `agent.deleted` | Server | Record that an agent was removed from the workspace roster. |
 | `channel.deleted` | Server | Record that a channel and its messages were removed. |
 | `message.created` | Any to server | Append a visible message in a channel or DM. |
@@ -72,7 +74,7 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 4. A later human message in that channel with no `@` mention routes to the active agent.
 5. If a channel has no active agent and the message has no `@`, it routes to the channel's configured `defaultAgentId`.
 6. If `defaultAgentId` is not set, routing falls back to the first agent in that channel's member list.
-7. New channels include the current agents as members and default to the workspace's first agent.
+7. New channels include the registered humans and current agents as members, then default to the workspace's first agent.
 8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants; the daemon prompt tells each runtime to explicitly `@` its peers.
 9. Agent replies that mention another agent are routed as the next agent-to-agent turn with `threadDepth + 1`, capped at 6 turns.
 10. If a multi-agent reply forgets both `@peer` and `@You`, the server falls back to the reply payload's `peerAgents` so the discussion does not silently stop.

@@ -35,6 +35,7 @@ const runtimeModels = {
 
 const els = {
   channelList: document.querySelector("#channel-list"),
+  userList: document.querySelector("#user-list"),
   agentList: document.querySelector("#agent-list"),
   roomName: document.querySelector("#room-name"),
   daemonChip: document.querySelector("#daemon-chip"),
@@ -58,6 +59,8 @@ const els = {
   agentModel: document.querySelector("#agent-model"),
   agentModelCustom: document.querySelector("#agent-model-custom"),
   agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
+  userDialog: document.querySelector("#user-dialog"),
+  userName: document.querySelector("#user-name"),
   channelDialog: document.querySelector("#channel-dialog"),
   markdownDialog: document.querySelector("#markdown-dialog"),
   markdownDialogTitle: document.querySelector("#markdown-dialog-title"),
@@ -90,7 +93,7 @@ async function load() {
 
 function render() {
   if (!state.snapshot) return;
-  const { channels, agents, daemons, events } = state.snapshot;
+  const { channels, users, agents, daemons, events } = state.snapshot;
   if (!channels.some((channel) => channel.id === state.channelId)) {
     state.channelId = channels[0]?.id || "";
   }
@@ -98,6 +101,7 @@ function render() {
   els.roomName.textContent = current ? `#${current.name}` : "#channel";
 
   renderChannels(channels);
+  renderUsers(users || []);
   renderAgents(agents);
   renderMessages();
   renderMentions(availableMentionAgents(current, agents));
@@ -129,6 +133,32 @@ function renderChannels(channels) {
     deleteButton.addEventListener("click", () => deleteChannel(channel));
     row.append(button, deleteButton);
     els.channelList.append(row);
+  }
+}
+
+function renderUsers(users) {
+  els.userList.innerHTML = "";
+  const currentUserId = state.snapshot.currentUserId || "usr_you";
+  for (const user of users) {
+    const row = document.createElement("div");
+    row.className = "human-row";
+    const item = document.createElement("div");
+    item.className = "human-item";
+    item.title = user.id === currentUserId ? `${user.name} - current human` : `${user.name} - registered human`;
+    item.innerHTML = `<span class="avatar" style="background:${user.color || "#2563eb"}">${initials(user.name)}</span><span><strong>${escapeHTML(user.name)}</strong><span class="human-meta">${user.id === currentUserId ? "current human" : "human participant"}</span></span>`;
+    row.append(item);
+
+    if (user.id !== currentUserId) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "item-delete";
+      deleteButton.title = `Delete ${user.name}`;
+      deleteButton.setAttribute("aria-label", `Delete human ${user.name}`);
+      deleteButton.textContent = "x";
+      deleteButton.addEventListener("click", () => deleteUser(user));
+      row.append(deleteButton);
+    }
+    els.userList.append(row);
   }
 }
 
@@ -682,6 +712,7 @@ els.defaultAgent.addEventListener("change", async () => {
 });
 
 document.querySelector("#new-agent").addEventListener("click", () => els.agentDialog.showModal());
+document.querySelector("#new-user").addEventListener("click", () => els.userDialog.showModal());
 document.querySelector("#new-channel").addEventListener("click", () => els.channelDialog.showModal());
 
 els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
@@ -703,6 +734,15 @@ document.querySelector("#agent-create").addEventListener("click", async (event) 
   els.agentModelCustom.value = "";
   populateModelOptions("codex");
   els.agentDialog.close();
+});
+
+document.querySelector("#user-create").addEventListener("click", async (event) => {
+  event.preventDefault();
+  const name = els.userName.value.trim();
+  if (!name) return;
+  await api("/api/users", { method: "POST", body: JSON.stringify({ name }) });
+  els.userName.value = "";
+  els.userDialog.close();
 });
 
 document.querySelector("#channel-create").addEventListener("click", async (event) => {
@@ -734,6 +774,15 @@ async function deleteAgent(agent) {
   if (!window.confirm(`Delete ${agent.name}? Existing messages from this agent stay in the channel history.`)) return;
   try {
     await api(`/api/agents/${encodeURIComponent(agent.id)}`, { method: "DELETE" });
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteUser(user) {
+  if (!window.confirm(`Delete ${user.name}? Existing messages from this human stay in the channel history.`)) return;
+  try {
+    await api(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
   } catch (error) {
     alert(error.message);
   }
