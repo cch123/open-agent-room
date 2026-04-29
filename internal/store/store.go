@@ -116,11 +116,15 @@ func (s *Store) AddChannel(name, topic string) (protocol.Channel, error) {
 	if name == "" {
 		return protocol.Channel{}, errors.New("channel name is required")
 	}
+	memberIDs := []string{"usr_you"}
+	for _, agent := range s.state.Agents {
+		memberIDs = appendUnique(memberIDs, agent.ID)
+	}
 	ch := protocol.Channel{
 		ID:        protocol.NewID("chan"),
 		Name:      name,
 		Topic:     strings.TrimSpace(topic),
-		MemberIDs: []string{"usr_you"},
+		MemberIDs: memberIDs,
 	}
 	s.state.Channels = append(s.state.Channels, ch)
 	s.touchLocked()

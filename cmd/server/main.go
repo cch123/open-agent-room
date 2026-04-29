@@ -187,7 +187,8 @@ func (a *app) handleMessages(w http.ResponseWriter, r *http.Request) {
 		a.activateAssignTarget(ch.ID, stored.Text)
 		go a.assignFromCommand(ch.ID, stored, env.ID)
 	} else {
-		agentIDs := a.resolveAgentRoutes(ch.ID, stored.Text, a.store.Snapshot().Agents)
+		snapshot := a.store.Snapshot()
+		agentIDs := a.resolveAgentRoutes(ch, stored.Text, snapshot.Agents)
 		go a.routeAgentMessages(ch, stored, agentIDs, env.ID)
 	}
 
@@ -426,18 +427,37 @@ func (a *app) routeAgentMessages(ch protocol.Channel, msg protocol.Message, agen
 	}
 }
 
-func (a *app) resolveAgentRoutes(channelID, text string, agents []protocol.Agent) []string {
+func (a *app) resolveAgentRoutes(ch protocol.Channel, text string, agents []protocol.Agent) []string {
 	agentIDs := protocol.ExtractMentions(text, agents)
 	if len(agentIDs) == 1 {
-		a.setActiveAgent(channelID, agentIDs[0])
+		a.setActiveAgent(ch.ID, agentIDs[0])
 	} else if len(agentIDs) > 1 {
-		a.clearActiveChannel(channelID)
+		a.clearActiveChannel(ch.ID)
 	} else if len(agentIDs) == 0 && !strings.Contains(text, "@") {
-		if agentID, ok := a.activeAgent(channelID); ok {
+		if agentID, ok := a.activeAgent(ch.ID); ok {
 			agentIDs = []string{agentID}
+		} else if agentID, ok := defaultAgentForChannel(ch, agents); ok {
+			agentIDs = []string{agentID}
+			a.setActiveAgent(ch.ID, agentID)
 		}
 	}
 	return agentIDs
+}
+
+func defaultAgentForChannel(ch protocol.Channel, agents []protocol.Agent) (string, bool) {
+	byID := make(map[string]protocol.Agent, len(agents))
+	for _, agent := range agents {
+		byID[agent.ID] = agent
+	}
+	for _, memberID := range ch.MemberIDs {
+		if agent, ok := byID[memberID]; ok {
+			return agent.ID, true
+		}
+	}
+	if len(agents) == 0 {
+		return "", false
+	}
+	return agents[0].ID, true
 }
 
 func (a *app) activeAgent(channelID string) (string, bool) {
@@ -452,6 +472,9 @@ func (a *app) setActiveAgent(channelID, agentID string) {
 		return
 	}
 	a.activeMu.Lock()
+	if a.activeAgents == nil {
+		a.activeAgents = make(map[string]string)
+	}
 	a.activeAgents[channelID] = agentID
 	a.activeMu.Unlock()
 }
