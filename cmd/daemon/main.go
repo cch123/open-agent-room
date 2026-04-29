@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xargin/open-agent-room/internal/protocol"
@@ -24,9 +25,11 @@ type memoryFile struct {
 
 type daemon struct {
 	conn          *websocket.Conn
+	writeMu       sync.Mutex
 	serverID      string
 	name          string
 	memory        memoryFile
+	memoryMu      sync.Mutex
 	memPath       string
 	runner        string
 	runnerFormat  string
@@ -94,7 +97,7 @@ func main() {
 		Name:         d.name,
 		Capabilities: capabilities,
 	}, "")
-	if err := conn.WriteJSON(hello); err != nil {
+	if err := d.writeEnvelope(hello); err != nil {
 		log.Fatal(err)
 	}
 
@@ -142,13 +145,13 @@ func (d *daemon) handle(env protocol.Envelope) error {
 		if err != nil {
 			return err
 		}
-		return d.reply("agent.message", payload.Agent, payload.Channel.ID, payload.Message.Text, payload.Recent, env.ID)
+		d.startReply("agent.message", payload.Agent, payload.Channel.ID, payload.Message.Text, payload.Recent, env.ID)
 	case "task.assigned":
 		payload, err := protocol.DecodePayload[protocol.TaskAssignedPayload](env)
 		if err != nil {
 			return err
 		}
-		return d.reply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, env.ID)
+		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, env.ID)
 	case "error":
 		log.Printf("server error: %s", string(env.Payload))
 	default:
@@ -157,31 +160,32 @@ func (d *daemon) handle(env protocol.Envelope) error {
 	return nil
 }
 
+func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, prompt string, recent []protocol.Message, causationID string) {
+	go func() {
+		log.Printf("agent %s handling %s", agent.Name, eventType)
+		if err := d.reply(eventType, agent, channelID, prompt, recent, causationID); err != nil {
+			log.Printf("reply %s for %s: %v", eventType, agent.Name, err)
+			if statusErr := d.sendStatus(agent.ID, "idle", causationID); statusErr != nil {
+				log.Printf("reset status for %s: %v", agent.Name, statusErr)
+			}
+		}
+	}()
+}
+
 func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt string, recent []protocol.Message, causationID string) error {
 	d.ensureAgent(agent.ID)
 	if err := d.sendStatus(agent.ID, "thinking", causationID); err != nil {
 		return err
 	}
 
-	memories := d.memory.Agents[agent.ID]
-	remembered := extractMemory(prompt)
-	if remembered != "" {
-		d.memory.Agents[agent.ID] = append(memories, remembered)
-		if len(d.memory.Agents[agent.ID]) > 20 {
-			d.memory.Agents[agent.ID] = d.memory.Agents[agent.ID][len(d.memory.Agents[agent.ID])-20:]
-		}
-		if err := saveMemory(d.memPath, d.memory); err != nil {
+	memories, memEnv, err := d.prepareMemories(agent, channelID, prompt, causationID)
+	if err != nil {
+		return err
+	}
+	if memEnv != nil {
+		if err := d.writeEnvelope(*memEnv); err != nil {
 			return err
 		}
-		memEnv := d.newEnvelope("memory.upsert", protocol.Actor{Kind: "agent", ID: agent.ID, Name: agent.Name}, protocol.Scope{Kind: "channel", ID: channelID}, protocol.MemoryUpsertPayload{
-			AgentID: agent.ID,
-			Text:    remembered,
-			Source:  "daemon",
-		}, causationID)
-		if err := d.conn.WriteJSON(memEnv); err != nil {
-			return err
-		}
-		memories = d.memory.Agents[agent.ID]
 	}
 
 	request := runnerRequest{
@@ -203,10 +207,37 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 		ChannelID: channelID,
 		Text:      reply,
 	}, causationID)
-	if err := d.conn.WriteJSON(replyEnv); err != nil {
+	if err := d.writeEnvelope(replyEnv); err != nil {
 		return err
 	}
 	return d.sendStatus(agent.ID, "idle", causationID)
+}
+
+func (d *daemon) prepareMemories(agent protocol.Agent, channelID, prompt, causationID string) ([]string, *protocol.Envelope, error) {
+	remembered := extractMemory(prompt)
+
+	d.memoryMu.Lock()
+	defer d.memoryMu.Unlock()
+
+	memories := append([]string(nil), d.memory.Agents[agent.ID]...)
+	if remembered == "" {
+		return memories, nil, nil
+	}
+
+	d.memory.Agents[agent.ID] = append(d.memory.Agents[agent.ID], remembered)
+	if len(d.memory.Agents[agent.ID]) > 20 {
+		d.memory.Agents[agent.ID] = d.memory.Agents[agent.ID][len(d.memory.Agents[agent.ID])-20:]
+	}
+	if err := saveMemory(d.memPath, d.memory); err != nil {
+		return nil, nil, err
+	}
+	memories = append([]string(nil), d.memory.Agents[agent.ID]...)
+	memEnv := d.newEnvelope("memory.upsert", protocol.Actor{Kind: "agent", ID: agent.ID, Name: agent.Name}, protocol.Scope{Kind: "channel", ID: channelID}, protocol.MemoryUpsertPayload{
+		AgentID: agent.ID,
+		Text:    remembered,
+		Source:  "daemon",
+	}, causationID)
+	return memories, &memEnv, nil
 }
 
 func (d *daemon) buildAgentReply(request runnerRequest) (string, error) {
@@ -418,6 +449,12 @@ func (d *daemon) sendStatus(agentID, status, causationID string) error {
 		AgentID: agentID,
 		Status:  status,
 	}, causationID)
+	return d.writeEnvelope(env)
+}
+
+func (d *daemon) writeEnvelope(env protocol.Envelope) error {
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
 	return d.conn.WriteJSON(env)
 }
 
@@ -429,6 +466,9 @@ func (d *daemon) newEnvelope(typ string, actor protocol.Actor, scope protocol.Sc
 }
 
 func (d *daemon) ensureAgent(agentID string) {
+	d.memoryMu.Lock()
+	defer d.memoryMu.Unlock()
+
 	if d.memory.Agents == nil {
 		d.memory.Agents = make(map[string][]string)
 	}
