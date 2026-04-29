@@ -18,10 +18,12 @@ import (
 )
 
 type app struct {
-	store   *store.Store
-	hub     *realtime.Hub
-	daemons *daemonRegistry
-	token   string
+	store        *store.Store
+	hub          *realtime.Hub
+	daemons      *daemonRegistry
+	token        string
+	activeMu     sync.RWMutex
+	activeAgents map[string]string
 }
 
 type daemonClient struct {
@@ -76,10 +78,11 @@ func main() {
 		log.Fatal(err)
 	}
 	a := &app{
-		store:   st,
-		hub:     realtime.NewHub(),
-		daemons: newDaemonRegistry(),
-		token:   getenv("SLOCK_TOKEN", "dev-token"),
+		store:        st,
+		hub:          realtime.NewHub(),
+		daemons:      newDaemonRegistry(),
+		token:        getenv("SLOCK_TOKEN", "dev-token"),
+		activeAgents: make(map[string]string),
 	}
 
 	mux := http.NewServeMux()
@@ -181,9 +184,11 @@ func (a *app) handleMessages(w http.ResponseWriter, r *http.Request) {
 	a.broadcast()
 
 	if strings.HasPrefix(req.Text, "/assign ") {
+		a.activateAssignTarget(ch.ID, stored.Text)
 		go a.assignFromCommand(ch.ID, stored, env.ID)
 	} else {
-		go a.routeMentions(ch, stored, env.ID)
+		agentIDs := a.resolveAgentRoutes(ch.ID, stored.Text, a.store.Snapshot().Agents)
+		go a.routeAgentMessages(ch, stored, agentIDs, env.ID)
 	}
 
 	writeJSON(w, http.StatusCreated, stored)
@@ -357,11 +362,25 @@ func (a *app) assignFromCommand(channelID string, msg protocol.Message, causatio
 	_, _ = a.assignTask(agent, channelID, task, causationID)
 }
 
+func (a *app) activateAssignTarget(channelID, text string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(text, "/assign"))
+	parts := strings.Fields(rest)
+	if len(parts) == 0 {
+		return
+	}
+	agent, ok := a.store.FindAgent(parts[0])
+	if !ok {
+		return
+	}
+	a.setActiveAgent(channelID, agent.ID)
+}
+
 func (a *app) assignTask(agent protocol.Agent, channelID, task, causationID string) (protocol.Message, error) {
 	ch, ok := a.store.FindChannel(channelID)
 	if !ok {
 		return protocol.Message{}, errors.New("channel not found")
 	}
+	a.setActiveAgent(ch.ID, agent.ID)
 	payload := protocol.TaskAssignedPayload{
 		Agent:     agent,
 		ChannelID: ch.ID,
@@ -387,11 +406,11 @@ func (a *app) assignTask(agent protocol.Agent, channelID, task, causationID stri
 	return stored, nil
 }
 
-func (a *app) routeMentions(ch protocol.Channel, msg protocol.Message, causationID string) {
-	agentIDs := protocol.ExtractMentions(msg.Text, a.store.Snapshot().Agents)
+func (a *app) routeAgentMessages(ch protocol.Channel, msg protocol.Message, agentIDs []string, causationID string) {
 	for _, id := range agentIDs {
 		agent, ok := a.store.FindAgent(id)
 		if !ok {
+			a.clearActiveAgent(ch.ID, id)
 			continue
 		}
 		payload := protocol.AgentMessagePayload{
@@ -405,6 +424,50 @@ func (a *app) routeMentions(ch protocol.Channel, msg protocol.Message, causation
 			a.fallbackReply(agent, ch.ID, msg.Text, env.ID)
 		}
 	}
+}
+
+func (a *app) resolveAgentRoutes(channelID, text string, agents []protocol.Agent) []string {
+	agentIDs := protocol.ExtractMentions(text, agents)
+	if len(agentIDs) == 1 {
+		a.setActiveAgent(channelID, agentIDs[0])
+	} else if len(agentIDs) > 1 {
+		a.clearActiveChannel(channelID)
+	} else if len(agentIDs) == 0 && !strings.Contains(text, "@") {
+		if agentID, ok := a.activeAgent(channelID); ok {
+			agentIDs = []string{agentID}
+		}
+	}
+	return agentIDs
+}
+
+func (a *app) activeAgent(channelID string) (string, bool) {
+	a.activeMu.RLock()
+	defer a.activeMu.RUnlock()
+	agentID, ok := a.activeAgents[channelID]
+	return agentID, ok && agentID != ""
+}
+
+func (a *app) setActiveAgent(channelID, agentID string) {
+	if channelID == "" || agentID == "" {
+		return
+	}
+	a.activeMu.Lock()
+	a.activeAgents[channelID] = agentID
+	a.activeMu.Unlock()
+}
+
+func (a *app) clearActiveAgent(channelID, agentID string) {
+	a.activeMu.Lock()
+	defer a.activeMu.Unlock()
+	if a.activeAgents[channelID] == agentID {
+		delete(a.activeAgents, channelID)
+	}
+}
+
+func (a *app) clearActiveChannel(channelID string) {
+	a.activeMu.Lock()
+	delete(a.activeAgents, channelID)
+	a.activeMu.Unlock()
 }
 
 func (a *app) routeTask(agent protocol.Agent, ch protocol.Channel, payload protocol.TaskAssignedPayload, env protocol.Envelope) {

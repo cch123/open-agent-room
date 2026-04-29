@@ -66,10 +66,13 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 
 1. Human messages are persisted first, then routed.
 2. A message routes to agents whose display name or id appears as `@Name` or `@agent_id`.
-3. `/assign <agent> <task>` creates a visible task message and sends `task.assigned`.
-4. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
-5. Agent replies are visible messages and also become protocol events in the inspector.
-6. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
+3. When a channel message mentions exactly one agent, that agent becomes the active agent for follow-up messages in the same channel.
+4. A later human message in that channel with no `@` mention routes to the active agent.
+5. Messages that mention multiple agents are delivered to all mentioned agents and clear the single active-agent context.
+6. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
+7. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
+8. Agent replies are visible messages and also become protocol events in the inspector.
+9. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
 
 ## Daemon Handshake
 
