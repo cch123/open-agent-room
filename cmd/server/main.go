@@ -17,6 +17,8 @@ import (
 	"github.com/xargin/open-agent-room/internal/webui"
 )
 
+const maxAgentThreadDepth = 6
+
 type app struct {
 	store        *store.Store
 	hub          *realtime.Hub
@@ -27,9 +29,16 @@ type app struct {
 }
 
 type daemonClient struct {
-	id   string
-	name string
-	conn *websocket.Conn
+	id      string
+	name    string
+	conn    *websocket.Conn
+	writeMu sync.Mutex
+}
+
+func (c *daemonClient) writeJSON(env protocol.Envelope) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.conn.WriteJSON(env)
 }
 
 type daemonRegistry struct {
@@ -398,7 +407,7 @@ func (a *app) handleDaemon(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	ready := protocol.NewEnvelope(a.store.ServerID(), "daemon.ready", protocol.Actor{Kind: "system", ID: "system"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]string{"daemonId": daemonID, "serverId": a.store.ServerID()}, hello.ID)
-	_ = conn.WriteJSON(ready)
+	_ = client.writeJSON(ready)
 	a.broadcast()
 
 	for _, agent := range a.store.Snapshot().Agents {
@@ -474,6 +483,10 @@ func (a *app) assignTask(agent protocol.Agent, channelID, task, causationID stri
 }
 
 func (a *app) routeAgentMessages(ch protocol.Channel, msg protocol.Message, agentIDs []string, causationID string) {
+	a.routeAgentMessagesWithContext(ch, msg, agentIDs, nil, causationID, 0)
+}
+
+func (a *app) routeAgentMessagesWithContext(ch protocol.Channel, msg protocol.Message, agentIDs []string, peerPool []protocol.Agent, causationID string, threadDepth int) {
 	agents := make([]protocol.Agent, 0, len(agentIDs))
 	for _, id := range agentIDs {
 		agent, ok := a.store.FindAgent(id)
@@ -483,15 +496,24 @@ func (a *app) routeAgentMessages(ch protocol.Channel, msg protocol.Message, agen
 		}
 		agents = append(agents, agent)
 	}
+	if len(agents) == 0 {
+		return
+	}
+	if len(peerPool) == 0 {
+		peerPool = agents
+	} else {
+		peerPool = mergeAgents(peerPool, agents)
+	}
 
 	recent := a.store.RecentMessages(ch.ID, 12)
 	for _, agent := range agents {
 		payload := protocol.AgentMessagePayload{
-			Agent:      agent,
-			Channel:    ch,
-			Message:    msg,
-			Recent:     recent,
-			PeerAgents: peerAgentsFor(agents, agent.ID),
+			Agent:       agent,
+			Channel:     ch,
+			Message:     msg,
+			Recent:      recent,
+			PeerAgents:  peerAgentsFor(peerPool, agent.ID),
+			ThreadDepth: threadDepth,
 		}
 		env := protocol.NewEnvelope(a.store.ServerID(), "agent.message", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "channel", ID: ch.ID}, payload, causationID)
 		if !a.sendToAgent(agent, env) {
@@ -525,6 +547,35 @@ func peerAgentsFor(agents []protocol.Agent, agentID string) []protocol.Agent {
 		}
 	}
 	return peers
+}
+
+func mergeAgents(groups ...[]protocol.Agent) []protocol.Agent {
+	var merged []protocol.Agent
+	seen := make(map[string]bool)
+	for _, group := range groups {
+		for _, agent := range group {
+			if agent.ID == "" || seen[agent.ID] {
+				continue
+			}
+			merged = append(merged, agent)
+			seen[agent.ID] = true
+		}
+	}
+	return merged
+}
+
+func routeTargetsFromAgentReply(text, authorAgentID string, agents []protocol.Agent) []string {
+	agentIDs := protocol.ExtractMentions(text, agents)
+	targets := make([]string, 0, len(agentIDs))
+	seen := make(map[string]bool)
+	for _, agentID := range agentIDs {
+		if agentID == authorAgentID || seen[agentID] {
+			continue
+		}
+		targets = append(targets, agentID)
+		seen[agentID] = true
+	}
+	return targets
 }
 
 func defaultAgentForChannel(ch protocol.Channel, agents []protocol.Agent) (string, bool) {
@@ -605,7 +656,7 @@ func (a *app) sendToAgent(agent protocol.Agent, env protocol.Envelope) bool {
 	}
 	_ = a.store.UpdateAgentStatus(agent.ID, "thinking", client.id)
 	a.broadcast()
-	if err := client.conn.WriteJSON(env); err != nil {
+	if err := client.writeJSON(env); err != nil {
 		return false
 	}
 	_ = a.store.AddEnvelope(env)
@@ -623,7 +674,7 @@ func (a *app) spawnAgent(agent protocol.Agent) {
 
 func (a *app) spawnAgentOnClient(client *daemonClient, agent protocol.Agent) {
 	env := protocol.NewEnvelope(a.store.ServerID(), "agent.spawn", protocol.Actor{Kind: "system", ID: "system"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, protocol.AgentSpawnPayload{Agent: agent}, "")
-	if err := client.conn.WriteJSON(env); err == nil {
+	if err := client.writeJSON(env); err == nil {
 		_ = a.store.AddEnvelope(env)
 		_ = a.store.UpdateAgentStatus(agent.ID, "starting", client.id)
 		a.broadcast()
@@ -675,11 +726,45 @@ func (a *app) appendAgentReply(payload protocol.AgentReplyPayload, env protocol.
 		Kind:       "message",
 		Tags:       []string{"agent"},
 	}
-	_, _ = a.store.AddMessage(msg, env)
+	stored, err := a.store.AddMessage(msg, env)
+	if err != nil {
+		return
+	}
 	for _, memory := range payload.Memory {
 		_ = a.store.AppendMemory(agent.ID, memory, "reply")
 	}
 	_ = a.store.UpdateAgentStatus(agent.ID, "idle", daemonID)
+	a.routeAgentReplyMentions(agent, stored, payload, env)
+}
+
+func (a *app) routeAgentReplyMentions(author protocol.Agent, msg protocol.Message, payload protocol.AgentReplyPayload, env protocol.Envelope) {
+	if payload.ThreadDepth >= maxAgentThreadDepth {
+		return
+	}
+	ch, ok := a.store.FindChannel(payload.ChannelID)
+	if !ok {
+		return
+	}
+	snapshot := a.store.Snapshot()
+	targetIDs := routeTargetsFromAgentReply(payload.Text, author.ID, snapshot.Agents)
+	if len(targetIDs) == 0 {
+		return
+	}
+	targetAgents := make([]protocol.Agent, 0, len(targetIDs))
+	for _, targetID := range targetIDs {
+		if target, ok := a.store.FindAgent(targetID); ok {
+			targetAgents = append(targetAgents, target)
+		}
+	}
+	if len(targetAgents) == 0 {
+		return
+	}
+	targetIDs = targetIDs[:0]
+	for _, target := range targetAgents {
+		targetIDs = append(targetIDs, target.ID)
+	}
+	peerPool := mergeAgents([]protocol.Agent{author}, targetAgents)
+	go a.routeAgentMessagesWithContext(ch, msg, targetIDs, peerPool, env.ID, payload.ThreadDepth+1)
 }
 
 func (a *app) fallbackReply(agent protocol.Agent, channelID, prompt, causationID string) {

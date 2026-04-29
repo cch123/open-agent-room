@@ -122,11 +122,12 @@ type AgentSpawnPayload struct {
 }
 
 type AgentMessagePayload struct {
-	Agent      Agent     `json:"agent"`
-	Channel    Channel   `json:"channel"`
-	Message    Message   `json:"message"`
-	Recent     []Message `json:"recent"`
-	PeerAgents []Agent   `json:"peerAgents,omitempty"`
+	Agent       Agent     `json:"agent"`
+	Channel     Channel   `json:"channel"`
+	Message     Message   `json:"message"`
+	Recent      []Message `json:"recent"`
+	PeerAgents  []Agent   `json:"peerAgents,omitempty"`
+	ThreadDepth int       `json:"threadDepth,omitempty"`
 }
 
 type TaskAssignedPayload struct {
@@ -137,10 +138,11 @@ type TaskAssignedPayload struct {
 }
 
 type AgentReplyPayload struct {
-	AgentID   string   `json:"agentId"`
-	ChannelID string   `json:"channelId"`
-	Text      string   `json:"text"`
-	Memory    []string `json:"memory,omitempty"`
+	AgentID     string   `json:"agentId"`
+	ChannelID   string   `json:"channelId"`
+	Text        string   `json:"text"`
+	Memory      []string `json:"memory,omitempty"`
+	ThreadDepth int      `json:"threadDepth,omitempty"`
 }
 
 type AgentStatusPayload struct {

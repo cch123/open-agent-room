@@ -110,3 +110,37 @@ func TestPeerAgentsForExcludesCurrentAgent(t *testing.T) {
 		t.Fatalf("peer agents = %v, want %v", got, want)
 	}
 }
+
+func TestRouteTargetsFromAgentReplyIgnoresHumanAndSelfMentions(t *testing.T) {
+	agents := []protocol.Agent{
+		{ID: "agent_ada", Name: "Ada"},
+		{ID: "agent_lin", Name: "Lin"},
+		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+	}
+
+	got := routeTargetsFromAgentReply("@ClaudeLocal can you validate this? @You wait for the final", "agent_lin", agents)
+	want := []string{"agent_claudelocal"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("route targets = %v, want %v", got, want)
+	}
+
+	got = routeTargetsFromAgentReply("@Lin I can handle this myself. @You please review.", "agent_lin", agents)
+	if len(got) != 0 {
+		t.Fatalf("self/human-only mentions should not route, got %v", got)
+	}
+}
+
+func TestMergeAgentsKeepsFirstOccurrenceOrder(t *testing.T) {
+	got := mergeAgents(
+		[]protocol.Agent{{ID: "agent_lin", Name: "Lin"}, {ID: "agent_ada", Name: "Ada"}},
+		[]protocol.Agent{{ID: "agent_lin", Name: "Lin"}, {ID: "agent_claudelocal", Name: "ClaudeLocal"}},
+	)
+	want := []protocol.Agent{
+		{ID: "agent_lin", Name: "Lin"},
+		{ID: "agent_ada", Name: "Ada"},
+		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("merged agents = %v, want %v", got, want)
+	}
+}

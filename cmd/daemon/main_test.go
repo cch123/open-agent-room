@@ -65,6 +65,7 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 		"@ClaudeLocal",
 		"Collaboration rule:",
 		"explicitly mention the other participant with @Name",
+		"mention @You with a concise final summary",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, got)

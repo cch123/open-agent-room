@@ -46,6 +46,7 @@ type runnerRequest struct {
 	Prompt      string             `json:"prompt"`
 	Agent       protocol.Agent     `json:"agent"`
 	PeerAgents  []protocol.Agent   `json:"peerAgents,omitempty"`
+	ThreadDepth int                `json:"threadDepth,omitempty"`
 	Memories    []string           `json:"memories"`
 	Recent      []protocol.Message `json:"recent"`
 	CausationID string             `json:"causationId"`
@@ -146,13 +147,13 @@ func (d *daemon) handle(env protocol.Envelope) error {
 		if err != nil {
 			return err
 		}
-		d.startReply("agent.message", payload.Agent, payload.Channel.ID, payload.Message.Text, payload.PeerAgents, payload.Recent, env.ID)
+		d.startReply("agent.message", payload.Agent, payload.Channel.ID, payload.Message.Text, payload.PeerAgents, payload.ThreadDepth, payload.Recent, env.ID)
 	case "task.assigned":
 		payload, err := protocol.DecodePayload[protocol.TaskAssignedPayload](env)
 		if err != nil {
 			return err
 		}
-		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, nil, env.ID)
+		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, 0, nil, env.ID)
 	case "error":
 		log.Printf("server error: %s", string(env.Payload))
 	default:
@@ -161,10 +162,10 @@ func (d *daemon) handle(env protocol.Envelope) error {
 	return nil
 }
 
-func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, recent []protocol.Message, causationID string) {
+func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) {
 	go func() {
 		log.Printf("agent %s handling %s", agent.Name, eventType)
-		if err := d.reply(eventType, agent, channelID, prompt, peerAgents, recent, causationID); err != nil {
+		if err := d.reply(eventType, agent, channelID, prompt, peerAgents, threadDepth, recent, causationID); err != nil {
 			log.Printf("reply %s for %s: %v", eventType, agent.Name, err)
 			if statusErr := d.sendStatus(agent.ID, "idle", causationID); statusErr != nil {
 				log.Printf("reset status for %s: %v", agent.Name, statusErr)
@@ -173,7 +174,7 @@ func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, p
 	}()
 }
 
-func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, recent []protocol.Message, causationID string) error {
+func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) error {
 	d.ensureAgent(agent.ID)
 	if err := d.sendStatus(agent.ID, "thinking", causationID); err != nil {
 		return err
@@ -196,6 +197,7 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 		Prompt:      prompt,
 		Agent:       agent,
 		PeerAgents:  peerAgents,
+		ThreadDepth: threadDepth,
 		Memories:    memories,
 		Recent:      recent,
 		CausationID: causationID,
@@ -205,9 +207,10 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 		reply = fmt.Sprintf("Local runner failed: %v\n\nFalling back to demo runtime.\n\n%s", err, buildReply(agent, prompt, memories, peerAgents))
 	}
 	replyEnv := d.newEnvelope("agent.reply", protocol.Actor{Kind: "agent", ID: agent.ID, Name: agent.Name}, protocol.Scope{Kind: "channel", ID: channelID}, protocol.AgentReplyPayload{
-		AgentID:   agent.ID,
-		ChannelID: channelID,
-		Text:      reply,
+		AgentID:     agent.ID,
+		ChannelID:   channelID,
+		Text:        reply,
+		ThreadDepth: threadDepth,
 	}, causationID)
 	if err := d.writeEnvelope(replyEnv); err != nil {
 		return err
@@ -435,7 +438,7 @@ func buildRunnerPrompt(request runnerRequest) string {
 			}
 			b.WriteString("\n")
 		}
-		b.WriteString("\nCollaboration rule: Because this is a multi-agent conversation, explicitly mention the other participant with @Name when you respond. If you are handing off, asking a question, agreeing, or disagreeing, make that directed at the peer agent before giving the human-facing conclusion.\n\n")
+		fmt.Fprintf(&b, "\nCollaboration rule: This is turn %d of an agent-to-agent thread. If you still need peer input, explicitly mention the other participant with @Name and ask or answer them directly. Do not mention @You until the peer discussion has converged or you have a concrete final proposal. If the solution is settled, stop mentioning peer agents and mention @You with a concise final summary for human review.\n\n", request.ThreadDepth+1)
 	}
 	if len(request.Recent) > 0 {
 		b.WriteString("Recent channel context:\n")

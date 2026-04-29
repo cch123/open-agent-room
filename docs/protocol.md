@@ -74,10 +74,12 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 6. If `defaultAgentId` is not set, routing falls back to the first agent in that channel's member list.
 7. New channels include the current agents as members and default to the workspace's first agent.
 8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants; the daemon prompt tells each runtime to explicitly `@` its peers.
-9. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
-10. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
-11. Agent replies are visible messages and also become protocol events in the inspector.
-12. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
+9. Agent replies that mention another agent are routed as the next agent-to-agent turn with `threadDepth + 1`, capped at 6 turns.
+10. `@You` is a terminal handoff marker for human review, not an agent route target.
+11. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
+12. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
+13. Agent replies are visible messages and also become protocol events in the inspector.
+14. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
 
 ## Daemon Handshake
 
@@ -159,6 +161,7 @@ Custom `json` runners receive this request:
       "runtime": "codex"
     }
   ],
+  "threadDepth": 0,
   "memories": ["prefer Go standard library"],
   "recent": [],
   "causationId": "evt_..."
