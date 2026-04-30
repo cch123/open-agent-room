@@ -1,10 +1,12 @@
 const themeStorageKey = "open-agent-room-theme";
+const channelReadStorageKey = "open-agent-room-channel-read";
 
 const state = {
   snapshot: null,
   view: "channel",
   channelId: "chan_general",
   theme: initialTheme(),
+  read: initialChannelReadState(),
   selectedEventId: null,
   mention: {
     active: false,
@@ -179,6 +181,8 @@ function render() {
   els.openTasks.classList.toggle("active", isTaskView);
   els.openSkills.classList.toggle("active", isSkillView);
 
+  initializeChannelReadState(channels);
+  if (!isManagementView && current) markChannelRead(current.id);
   renderChannels(channels);
   renderUsers(users);
   renderAgents(agents);
@@ -203,13 +207,20 @@ function renderChannels(channels) {
     const row = document.createElement("div");
     row.className = "nav-row";
     const button = document.createElement("button");
-    button.className = `nav-item ${state.view === "channel" && channel.id === state.channelId ? "active" : ""}`;
+    const isActive = state.view === "channel" && channel.id === state.channelId;
+    const unread = isActive ? 0 : channelUnreadCount(channel.id);
+    button.className = `nav-item ${isActive ? "active" : ""} ${unread ? "has-unread" : ""}`;
     button.title = channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`;
     button.dataset.tooltip = channel.topic ? `#${channel.name}\n${channel.topic}` : `#${channel.name}`;
-    button.innerHTML = `<span class="hash">#</span><span><strong>${escapeHTML(channel.name)}</strong><span class="nav-topic">${escapeHTML(channel.topic || "")}</span></span>`;
+    button.setAttribute("aria-label", unread ? `#${channel.name}, ${unread} unread` : `#${channel.name}`);
+    button.innerHTML = `
+      <span class="hash">#</span>
+      <span><strong>${escapeHTML(channel.name)}</strong><span class="nav-topic">${escapeHTML(channel.topic || "")}</span></span>
+      ${unread ? `<span class="unread-badge" aria-hidden="true">${escapeHTML(formatUnreadCount(unread))}</span>` : ""}`;
     button.addEventListener("click", () => {
       state.view = "channel";
       state.channelId = channel.id;
+      markChannelRead(channel.id);
       render();
     });
     const deleteButton = document.createElement("button");
@@ -786,6 +797,86 @@ function updateThemeToggle() {
   if (icon) icon.textContent = isDark ? "Lt" : "Bk";
 }
 
+function initialChannelReadState() {
+  try {
+    const raw = localStorage.getItem(channelReadStorageKey);
+    if (!raw) return { hydrated: false, channels: {} };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { hydrated: false, channels: {} };
+    return {
+      hydrated: true,
+      channels: parsed.channels && typeof parsed.channels === "object" ? parsed.channels : {},
+    };
+  } catch {
+    return { hydrated: false, channels: {} };
+  }
+}
+
+function initializeChannelReadState(channels) {
+  if (state.read.hydrated) return;
+  for (const channel of channels) {
+    markChannelRead(channel.id, { persist: false });
+  }
+  state.read.hydrated = true;
+  persistChannelReadState();
+}
+
+function markChannelRead(channelId, options = {}) {
+  if (!channelId || !state.snapshot) return;
+  const latest = latestChannelMessage(channelId);
+  const next = latest
+    ? { messageId: latest.id || "", timestamp: latest.timestamp || "" }
+    : { messageId: "", timestamp: "" };
+  const previous = state.read.channels[channelId] || {};
+  if (previous.messageId === next.messageId && previous.timestamp === next.timestamp) return;
+  state.read.channels[channelId] = next;
+  if (options.persist !== false) persistChannelReadState();
+}
+
+function forgetChannelRead(channelId) {
+  if (!channelId) return;
+  delete state.read.channels[channelId];
+  persistChannelReadState();
+}
+
+function persistChannelReadState() {
+  try {
+    localStorage.setItem(channelReadStorageKey, JSON.stringify({ channels: state.read.channels }));
+  } catch {
+    // Unread badges still work for this session if storage is unavailable.
+  }
+}
+
+function latestChannelMessage(channelId) {
+  const messages = state.snapshot?.messages || [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].channelId === channelId) return messages[index];
+  }
+  return null;
+}
+
+function channelUnreadCount(channelId) {
+  const messages = (state.snapshot?.messages || []).filter((message) => message.channelId === channelId);
+  if (messages.length === 0) return 0;
+  const cursor = state.read.channels[channelId];
+  if (!cursor) return messages.length;
+
+  const cursorIndex = messages.findIndex((message) => message.id === cursor.messageId);
+  if (cursorIndex !== -1) return Math.max(0, messages.length - cursorIndex - 1);
+
+  const cursorTime = messageTimeValue(cursor);
+  return messages.filter((message) => messageTimeValue(message) > cursorTime).length;
+}
+
+function messageTimeValue(message) {
+  const parsed = Date.parse(message.timestamp || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatUnreadCount(count) {
+  return count > 99 ? "99+" : String(count);
+}
+
 async function sendComposerMessage() {
   const text = els.input.value.trim();
   if (!text) return;
@@ -1161,6 +1252,7 @@ async function deleteChannel(channel) {
   if (!window.confirm(`Delete #${channel.name}? This removes the channel and its messages.`)) return;
   try {
     await api(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
+    forgetChannelRead(channel.id);
     if (state.channelId === channel.id) {
       const next = state.snapshot.channels.find((candidate) => candidate.id !== channel.id);
       state.channelId = next?.id || "";

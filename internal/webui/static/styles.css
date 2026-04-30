@@ -344,6 +344,34 @@ button:focus-visible {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.nav-item.has-unread {
+  padding-right: 40px;
+}
+
+.nav-item.has-unread strong {
+  color: var(--accent-strong);
+}
+
+.unread-badge {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--rose);
+  color: white;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+  transform: translateY(-50%);
+  box-shadow: 0 6px 14px rgba(190, 18, 60, 0.2);
+  pointer-events: none;
+}
+
 .item-delete {
   display: inline-grid;
   place-items: center;
@@ -1889,6 +1917,17 @@ menu button:first-child:hover {
 :root[data-theme="dark"] .workspace-tool.active,
 :root[data-theme="dark"] .nav-item.active {
   box-shadow: inset 3px 0 0 var(--accent), 0 0 20px rgba(34, 211, 238, 0.12);
+}
+
+:root[data-theme="dark"] .nav-item.has-unread strong {
+  color: #f7fbff;
+  text-shadow: 0 0 14px rgba(34, 211, 238, 0.22);
+}
+
+:root[data-theme="dark"] .unread-badge {
+  background: linear-gradient(135deg, #fb3b8f, #facc15);
+  color: #090b10;
+  box-shadow: 0 0 16px rgba(251, 59, 143, 0.35), 0 0 8px rgba(250, 204, 21, 0.2);
 }
 
 :root[data-theme="dark"] .tool-icon,
