@@ -509,9 +509,6 @@ function renderTaskChatMentions(agents) {
     button.type = "button";
     button.className = "mention-button";
     button.textContent = `@${agent.name}`;
-    button.dataset.profileKind = "agent";
-    button.dataset.profileId = agent.id;
-    button.dataset.profileName = agent.name;
     button.addEventListener("click", () => insertTaskChatMention(agent.name));
     els.taskChatMentions.append(button);
   }
@@ -790,9 +787,6 @@ function renderMentions(agents) {
     button.type = "button";
     button.className = "mention-button";
     button.textContent = `@${agent.name}`;
-    button.dataset.profileKind = "agent";
-    button.dataset.profileId = agent.id;
-    button.dataset.profileName = agent.name;
     button.addEventListener("click", () => insertMention(agent.name));
     els.mentionRow.append(button);
   }
@@ -1956,15 +1950,14 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
         </div>
         <div class="task-card-meta">
           <span>${escapeHTML(formatTaskTime(task.updatedAt || task.createdAt))}</span>
-          <span>${escapeHTML(taskAssigneeLabel(task, users, agents))}</span>
           ${task.workdir ? `<span title="${escapeHTML(task.workdir)}">cwd ${escapeHTML(compactPath(task.workdir))}</span>` : ""}
           ${channel ? `<span>#${escapeHTML(channel.name)}</span>` : "<span>No channel</span>"}
         </div>
-        <label class="task-owner-field">
-          <span>Owner</span>
-          <select class="task-owner-select" aria-label="Assign owner for ${escapeHTML(task.title)}">${taskAssigneeOptionsHTML(users, agents, task)}</select>
-        </label>
-        <div class="task-card-controls">
+        <div class="task-card-routing">
+          <label class="task-owner-field">
+            <span>Owner</span>
+            <select class="task-owner-select" aria-label="Assign owner for ${escapeHTML(task.title)}">${taskAssigneeOptionsHTML(users, agents, task)}</select>
+          </label>
           <label class="task-status-control" data-status-tone="${statusTone}">
             <span class="task-status-chip" aria-hidden="true">
               <span class="task-status-icon"></span>
@@ -1972,6 +1965,8 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
             </span>
             <select class="task-status-select" aria-label="Move task ${escapeHTML(task.title)}">${taskLaneOptionsHTML(orderedLanes, task.laneId)}</select>
           </label>
+        </div>
+        <div class="task-card-controls">
           <button type="button" class="item-action visible" data-action="edit-task">Edit</button>
           <button type="button" class="item-action visible" data-action="discuss">Chat</button>
           <button type="button" class="item-delete visible" data-action="delete-task" aria-label="Delete task ${escapeHTML(task.title)}" title="Delete task">&times;</button>
