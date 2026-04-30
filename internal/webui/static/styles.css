@@ -207,7 +207,7 @@ button:focus-visible {
 }
 
 .agent-row {
-  grid-template-columns: minmax(0, 1fr) 28px 28px;
+  grid-template-columns: minmax(0, 1fr) 44px 28px;
 }
 
 .nav-item,
@@ -262,14 +262,16 @@ button:focus-visible {
 .item-action {
   display: inline-grid;
   place-items: center;
-  width: 28px;
+  width: 44px;
   height: 28px;
   margin-top: 9px;
   padding: 0;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--accent);
-  opacity: 0;
+  opacity: 1;
+  font-size: 11px;
+  font-weight: 760;
 }
 
 .nav-row:hover .item-delete,
@@ -1122,7 +1124,7 @@ menu button:first-child:hover {
   }
 
   .agent-row {
-    grid-template-columns: minmax(0, 1fr) 26px 26px;
+    grid-template-columns: minmax(0, 1fr) 40px 26px;
   }
 
   .nav-item,
@@ -1137,8 +1139,16 @@ menu button:first-child:hover {
   .avatar,
   .item-action,
   .item-delete {
-    width: 24px;
     height: 24px;
+  }
+
+  .item-delete {
+    width: 24px;
+  }
+
+  .item-action {
+    width: 40px;
+    font-size: 10px;
   }
 
   .item-delete {

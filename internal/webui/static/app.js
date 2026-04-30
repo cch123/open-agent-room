@@ -179,7 +179,7 @@ function renderAgents(agents) {
     const button = document.createElement("button");
     button.className = "agent-item";
     const skillCount = (agent.skills || []).length;
-    const skillMeta = skillCount ? ` · ${skillCount} skill${skillCount === 1 ? "" : "s"}` : "";
+    const skillMeta = ` · ${skillCount} skill${skillCount === 1 ? "" : "s"}`;
     const meta = `${agent.status} · ${runtimeLabel(agent)}${skillMeta} · ${agent.persona}`;
     button.title = `${agent.name} - ${meta}`;
     button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
@@ -191,7 +191,7 @@ function renderAgents(agents) {
     skillButton.className = "item-action";
     skillButton.title = `Import skill into ${agent.name}`;
     skillButton.setAttribute("aria-label", `Import skill into ${agent.name}`);
-    skillButton.textContent = "+";
+    skillButton.textContent = "Skill";
     skillButton.addEventListener("click", () => openSkillDialog(agent));
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
