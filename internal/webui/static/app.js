@@ -126,6 +126,7 @@ const els = {
   taskSubmit: document.querySelector("#task-create"),
   taskTitle: document.querySelector("#task-title"),
   taskDescription: document.querySelector("#task-description"),
+  taskWorkdir: document.querySelector("#task-workdir"),
   taskLane: document.querySelector("#task-lane"),
   taskLaneDialog: document.querySelector("#task-lane-dialog"),
   taskLaneList: document.querySelector("#task-lane-list"),
@@ -398,6 +399,7 @@ function renderTaskChannelContext(task, lane, users, agents, isManagementView) {
         <span>${escapeHTML(lane?.name || "Unplanned")}</span>
         <span>${escapeHTML(taskAssigneeLabel(task, users, agents))}</span>
         <span>Updated ${escapeHTML(formatTaskTime(updated))}</span>
+        ${task.workdir ? `<span title="${escapeHTML(task.workdir)}">cwd ${escapeHTML(compactPath(task.workdir))}</span>` : ""}
         <span>${task.channelId ? "Discussion channel" : "No channel"}</span>
       </div>
       <strong>${escapeHTML(task.title)}</strong>
@@ -427,7 +429,7 @@ function renderTaskChatDrawer(tasks, channels, users, agents, lanes, isTaskView)
   const lane = lanes.find((candidate) => candidate.id === task.laneId);
   els.taskChatDrawer.hidden = false;
   els.taskChatTitle.textContent = task.title;
-  els.taskChatMeta.textContent = `${lane?.name || "Unplanned"} · ${taskAssigneeLabel(task, users, agents)} · #${channel.name}`;
+  els.taskChatMeta.textContent = `${lane?.name || "Unplanned"} · ${taskAssigneeLabel(task, users, agents)}${task.workdir ? ` · cwd ${compactPath(task.workdir)}` : ""} · #${channel.name}`;
   renderMessagesFor(els.taskChatMessages, channel.id);
   renderTaskChatMentions(availableMentionAgents(channel, agents));
   if (els.taskChatInput.value !== state.taskDrawerDraft) {
@@ -1401,19 +1403,21 @@ document.querySelector("#task-create").addEventListener("click", async (event) =
   event.preventDefault();
   const title = els.taskTitle.value.trim();
   const description = els.taskDescription.value.trim();
+  const workdir = els.taskWorkdir.value.trim();
   const laneId = els.taskLane.value;
   if (!title) return;
   try {
     if (state.editingTaskId) {
       await api(`/api/tasks/${encodeURIComponent(state.editingTaskId)}`, {
         method: "PATCH",
-        body: JSON.stringify({ title, description, laneId }),
+        body: JSON.stringify({ title, description, workdir, laneId }),
       });
     } else {
-      await api("/api/tasks", { method: "POST", body: JSON.stringify({ title, description, laneId }) });
+      await api("/api/tasks", { method: "POST", body: JSON.stringify({ title, description, workdir, laneId }) });
     }
     els.taskTitle.value = "";
     els.taskDescription.value = "";
+    els.taskWorkdir.value = "";
     state.editingTaskId = "";
     state.snapshot = await api("/api/state");
     render();
@@ -1453,6 +1457,7 @@ function openTaskDialog(preferredLaneID = "", task = null) {
   els.taskSubmit.textContent = task ? "Save Changes" : "Create";
   els.taskTitle.value = task?.title || "";
   els.taskDescription.value = task?.description || "";
+  els.taskWorkdir.value = task?.workdir || "";
   els.taskDialog.showModal();
   els.taskTitle.focus();
 }
@@ -1834,6 +1839,7 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
         <div class="task-card-meta">
           <span>${escapeHTML(formatTaskTime(task.updatedAt || task.createdAt))}</span>
           <span>${escapeHTML(taskAssigneeLabel(task, users, agents))}</span>
+          ${task.workdir ? `<span title="${escapeHTML(task.workdir)}">cwd ${escapeHTML(compactPath(task.workdir))}</span>` : ""}
           ${channel ? `<span>#${escapeHTML(channel.name)}</span>` : "<span>No channel</span>"}
         </div>
         <label class="task-owner-field">
@@ -1850,7 +1856,7 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
           </label>
           <button type="button" class="item-action visible" data-action="edit-task">Edit</button>
           <button type="button" class="item-action visible" data-action="discuss">Chat</button>
-          <button type="button" class="item-delete visible" data-action="delete-task" aria-label="Delete task ${escapeHTML(task.title)}">x</button>
+          <button type="button" class="item-delete visible" data-action="delete-task" aria-label="Delete task ${escapeHTML(task.title)}" title="Delete task">&times;</button>
         </div>`;
       card.addEventListener("click", (event) => {
         if (event.target.closest("button, select, textarea, input, label")) return;
@@ -2400,6 +2406,16 @@ function formatTaskTime(value) {
   if (!value) return "No timestamp";
   const date = new Date(value);
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function compactPath(value = "") {
+  const trimmed = value.trim();
+  if (trimmed.length <= 34) return trimmed;
+  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `.../${parts.slice(-2).join("/")}`;
+  }
+  return `...${trimmed.slice(-31)}`;
 }
 
 function linkMentions(text) {

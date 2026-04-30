@@ -123,6 +123,7 @@ type Task struct {
 	ID           string `json:"id"`
 	Title        string `json:"title"`
 	Description  string `json:"description,omitempty"`
+	Workdir      string `json:"workdir,omitempty"`
 	LaneID       string `json:"laneId"`
 	ChannelID    string `json:"channelId,omitempty"`
 	AssigneeKind string `json:"assigneeKind,omitempty"`
@@ -169,6 +170,7 @@ type TaskAssignedPayload struct {
 	Agent     Agent  `json:"agent"`
 	ChannelID string `json:"channelId"`
 	Task      string `json:"task"`
+	Workdir   string `json:"workdir,omitempty"`
 	MessageID string `json:"messageId"`
 }
 

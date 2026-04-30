@@ -120,6 +120,7 @@ func TestBuildRunnerPromptIncludesTaskWorkflowForAssignedTasks(t *testing.T) {
 	request := runnerRequest{
 		EventType: "task.assigned",
 		ChannelID: "chan_task",
+		Workdir:   "/tmp/project",
 		Prompt:    "Ship the implementation",
 		Agent: protocol.Agent{
 			ID:   "agent_owner",
@@ -130,6 +131,8 @@ func TestBuildRunnerPromptIncludesTaskWorkflowForAssignedTasks(t *testing.T) {
 	got := buildRunnerPrompt(request)
 	for _, want := range []string{
 		"Task workflow:",
+		"Working directory: /tmp/project",
+		"Use the working directory above",
 		"moved it to Doing",
 		"TASK_STATUS: review",
 		"Never mark the task Done",
@@ -144,6 +147,7 @@ func TestBuildRunnerPromptIncludesTaskWorkflowForUpdatedTasks(t *testing.T) {
 	request := runnerRequest{
 		EventType: "task.updated",
 		ChannelID: "chan_task",
+		Workdir:   "/tmp/project",
 		Prompt:    "The acceptance criteria changed",
 		Agent: protocol.Agent{
 			ID:   "agent_owner",
@@ -154,6 +158,7 @@ func TestBuildRunnerPromptIncludesTaskWorkflowForUpdatedTasks(t *testing.T) {
 	got := buildRunnerPrompt(request)
 	for _, want := range []string{
 		"Task update workflow:",
+		"Working directory: /tmp/project",
 		"still the owner",
 		"latest source of truth",
 		"TASK_STATUS: review",

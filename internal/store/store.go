@@ -316,7 +316,7 @@ func (s *Store) DeleteTaskLane(id string) (protocol.TaskLane, error) {
 	return deleted, s.saveLocked()
 }
 
-func (s *Store) AddTask(title, description, laneID, createdBy string) (protocol.Task, error) {
+func (s *Store) AddTask(title, description, workdir, laneID, createdBy string) (protocol.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	title = strings.TrimSpace(title)
@@ -335,6 +335,7 @@ func (s *Store) AddTask(title, description, laneID, createdBy string) (protocol.
 		ID:          protocol.NewID("task"),
 		Title:       title,
 		Description: strings.TrimSpace(description),
+		Workdir:     strings.TrimSpace(workdir),
 		LaneID:      laneID,
 		CreatedBy:   strings.TrimSpace(createdBy),
 		CreatedAt:   now,
@@ -345,7 +346,7 @@ func (s *Store) AddTask(title, description, laneID, createdBy string) (protocol.
 	return task, s.saveLocked()
 }
 
-func (s *Store) UpdateTask(id string, title, description, laneID, assigneeKind, assigneeID *string) (protocol.Task, error) {
+func (s *Store) UpdateTask(id string, title, description, workdir, laneID, assigneeKind, assigneeID *string) (protocol.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id = strings.TrimSpace(id)
@@ -362,6 +363,9 @@ func (s *Store) UpdateTask(id string, title, description, laneID, assigneeKind, 
 		}
 		if description != nil {
 			s.state.Tasks[i].Description = strings.TrimSpace(*description)
+		}
+		if workdir != nil {
+			s.state.Tasks[i].Workdir = strings.TrimSpace(*workdir)
 		}
 		if laneID != nil {
 			next := strings.TrimSpace(*laneID)

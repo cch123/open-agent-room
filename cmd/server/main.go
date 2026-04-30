@@ -474,13 +474,14 @@ func (a *app) handleTasks(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
+		Workdir     string `json:"workdir"`
 		LaneID      string `json:"laneId"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	task, err := a.store.AddTask(req.Title, req.Description, req.LaneID, "usr_you")
+	task, err := a.store.AddTask(req.Title, req.Description, req.Workdir, req.LaneID, "usr_you")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -524,6 +525,7 @@ func (a *app) handleTaskSubroutes(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Title        *string `json:"title"`
 			Description  *string `json:"description"`
+			Workdir      *string `json:"workdir"`
 			LaneID       *string `json:"laneId"`
 			AssigneeKind *string `json:"assigneeKind"`
 			AssigneeID   *string `json:"assigneeId"`
@@ -533,7 +535,7 @@ func (a *app) handleTaskSubroutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		before, beforeFound := taskByID(a.store.Snapshot().Tasks, taskPath)
-		task, err := a.store.UpdateTask(taskPath, req.Title, req.Description, req.LaneID, req.AssigneeKind, req.AssigneeID)
+		task, err := a.store.UpdateTask(taskPath, req.Title, req.Description, req.Workdir, req.LaneID, req.AssigneeKind, req.AssigneeID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -946,6 +948,7 @@ func (a *app) dispatchTaskToOwner(task protocol.Task, causationID string) protoc
 		Agent:     agent,
 		ChannelID: ch.ID,
 		Task:      formatTaskAssignmentPrompt(task),
+		Workdir:   task.Workdir,
 		MessageID: protocol.NewID("task"),
 	}
 	env := protocol.NewEnvelope(a.store.ServerID(), "task.assigned", protocol.Actor{Kind: "system", ID: "task-router"}, protocol.Scope{Kind: "channel", ID: ch.ID}, payload, causationID)
@@ -1025,6 +1028,9 @@ func formatTaskAssignmentPrompt(task protocol.Task) string {
 	if strings.TrimSpace(task.Description) != "" {
 		fmt.Fprintf(&b, "Description: %s\n", task.Description)
 	}
+	if strings.TrimSpace(task.Workdir) != "" {
+		fmt.Fprintf(&b, "Working directory: %s\n", task.Workdir)
+	}
 	b.WriteString("\nWorkflow:\n")
 	b.WriteString("- The server has moved this task to Doing.\n")
 	b.WriteString("- Work in this task channel and report only concrete progress.\n")
@@ -1039,11 +1045,17 @@ func formatTaskUpdatePrompt(before, after protocol.Task) string {
 	if strings.TrimSpace(after.Description) != "" {
 		fmt.Fprintf(&b, "Description: %s\n", after.Description)
 	}
+	if strings.TrimSpace(after.Workdir) != "" {
+		fmt.Fprintf(&b, "Working directory: %s\n", after.Workdir)
+	}
 	if before.Title != after.Title {
 		fmt.Fprintf(&b, "Previous title: %s\n", before.Title)
 	}
 	if before.Description != after.Description {
 		fmt.Fprintf(&b, "Previous description: %s\n", before.Description)
+	}
+	if before.Workdir != after.Workdir {
+		fmt.Fprintf(&b, "Previous working directory: %s\n", valueOrNone(before.Workdir))
 	}
 	b.WriteString("\nUse this update as the latest task source of truth. Continue from the task channel, and if the work is ready for review, end with exactly: TASK_STATUS: review\n")
 	return b.String()
@@ -1055,6 +1067,9 @@ func formatTaskRevokedPrompt(before, after protocol.Task) string {
 	if strings.TrimSpace(after.Description) != "" {
 		fmt.Fprintf(&b, "Description: %s\n", after.Description)
 	}
+	if strings.TrimSpace(after.Workdir) != "" {
+		fmt.Fprintf(&b, "Working directory: %s\n", after.Workdir)
+	}
 	if after.AssigneeKind != "" && after.AssigneeID != "" {
 		fmt.Fprintf(&b, "\nThe task owner changed from %s/%s to %s/%s.", before.AssigneeKind, before.AssigneeID, after.AssigneeKind, after.AssigneeID)
 	} else {
@@ -1062,6 +1077,14 @@ func formatTaskRevokedPrompt(before, after protocol.Task) string {
 	}
 	b.WriteString("\nDo not continue execution or post a task completion for the revoked assignment.")
 	return b.String()
+}
+
+func valueOrNone(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "(none)"
+	}
+	return value
 }
 
 func taskByID(tasks []protocol.Task, id string) (protocol.Task, bool) {

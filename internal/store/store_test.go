@@ -281,12 +281,23 @@ func TestTasksCanMoveAndOpenDiscussionChannel(t *testing.T) {
 		t.Fatal("default task lanes were not initialized")
 	}
 
-	task, err := st.AddTask("Review routing", "Check mention routing edge cases.", "lane_todo", "usr_you")
+	task, err := st.AddTask("Review routing", "Check mention routing edge cases.", "/tmp/repo", "lane_todo", "usr_you")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if task.Workdir != "/tmp/repo" {
+		t.Fatalf("task workdir = %q", task.Workdir)
+	}
+	nextWorkdir := "/tmp/other"
+	task, err = st.UpdateTask(task.ID, nil, nil, &nextWorkdir, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Workdir != nextWorkdir {
+		t.Fatalf("updated task workdir = %q", task.Workdir)
+	}
 	doing := "lane_doing"
-	updated, err := st.UpdateTask(task.ID, nil, nil, &doing, nil, nil)
+	updated, err := st.UpdateTask(task.ID, nil, nil, nil, &doing, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,13 +337,13 @@ func TestTasksCanBeAssignedToParticipants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := st.AddTask("Ship task owners", "", "lane_todo", "usr_you")
+	task, err := st.AddTask("Ship task owners", "", "", "lane_todo", "usr_you")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	kind, id := "agent", agent.ID
-	updated, err := st.UpdateTask(task.ID, nil, nil, nil, &kind, &id)
+	updated, err := st.UpdateTask(task.ID, nil, nil, nil, nil, &kind, &id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +372,7 @@ func TestTasksCanMoveToNamedWorkflowLanes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := st.AddTask("Implement handoff", "", "lane_todo", "usr_you")
+	task, err := st.AddTask("Implement handoff", "", "", "lane_todo", "usr_you")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +432,7 @@ func TestDeleteTaskLaneMovesTasksToFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := st.AddTask("Wait for design", "", lane.ID, "usr_you")
+	task, err := st.AddTask("Wait for design", "", "", lane.ID, "usr_you")
 	if err != nil {
 		t.Fatal(err)
 	}

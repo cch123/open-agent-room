@@ -343,12 +343,12 @@ func TestTaskOwnerStartMovesTodoTaskToDoing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := a.store.AddTask("Implement owner handoff", "", "lane_todo", "usr_you")
+	task, err := a.store.AddTask("Implement owner handoff", "", "", "lane_todo", "usr_you")
 	if err != nil {
 		t.Fatal(err)
 	}
 	kind, id := "agent", agent.ID
-	task, err = a.store.UpdateTask(task.ID, nil, nil, nil, &kind, &id)
+	task, err = a.store.UpdateTask(task.ID, nil, nil, nil, nil, &kind, &id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,18 +359,36 @@ func TestTaskOwnerStartMovesTodoTaskToDoing(t *testing.T) {
 	}
 }
 
+func TestTaskAssignmentPromptIncludesWorkdir(t *testing.T) {
+	task := protocol.Task{
+		Title:       "Implement feature",
+		Description: "Wire the frontend and backend.",
+		Workdir:     "/tmp/project",
+	}
+	got := formatTaskAssignmentPrompt(task)
+	for _, want := range []string{
+		"Title: Implement feature",
+		"Description: Wire the frontend and backend.",
+		"Working directory: /tmp/project",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestAgentReviewMarkerMovesOwnedTaskToReviewAndIsHidden(t *testing.T) {
 	a := newTestApp(t)
 	agent, err := a.store.AddAgent("Owner", "Owns tasks", "", "codex", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := a.store.AddTask("Review handoff", "", "lane_doing", "usr_you")
+	task, err := a.store.AddTask("Review handoff", "", "", "lane_doing", "usr_you")
 	if err != nil {
 		t.Fatal(err)
 	}
 	kind, id := "agent", agent.ID
-	task, err = a.store.UpdateTask(task.ID, nil, nil, nil, &kind, &id)
+	task, err = a.store.UpdateTask(task.ID, nil, nil, nil, nil, &kind, &id)
 	if err != nil {
 		t.Fatal(err)
 	}

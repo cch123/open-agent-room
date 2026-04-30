@@ -54,6 +54,7 @@ type runnerRequest struct {
 	EventType   string             `json:"eventType"`
 	ServerID    string             `json:"serverId"`
 	ChannelID   string             `json:"channelId"`
+	Workdir     string             `json:"workdir,omitempty"`
 	Prompt      string             `json:"prompt"`
 	Agent       protocol.Agent     `json:"agent"`
 	PeerAgents  []protocol.Agent   `json:"peerAgents,omitempty"`
@@ -159,19 +160,19 @@ func (d *daemon) handle(env protocol.Envelope) error {
 		if err != nil {
 			return err
 		}
-		d.startReply("agent.message", payload.Agent, payload.Channel.ID, payload.Message.Text, payload.PeerAgents, payload.ThreadDepth, payload.Recent, env.ID)
+		d.startReply("agent.message", payload.Agent, payload.Channel.ID, "", payload.Message.Text, payload.PeerAgents, payload.ThreadDepth, payload.Recent, env.ID)
 	case "task.assigned":
 		payload, err := protocol.DecodePayload[protocol.TaskAssignedPayload](env)
 		if err != nil {
 			return err
 		}
-		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, 0, nil, env.ID)
+		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Workdir, payload.Task, nil, 0, nil, env.ID)
 	case "task.updated":
 		payload, err := protocol.DecodePayload[protocol.TaskOwnerEventPayload](env)
 		if err != nil {
 			return err
 		}
-		d.startReply("task.updated", payload.Agent, payload.ChannelID, payload.Message, nil, 0, nil, env.ID)
+		d.startReply("task.updated", payload.Agent, payload.ChannelID, payload.Task.Workdir, payload.Message, nil, 0, nil, env.ID)
 	case "task.revoked":
 		payload, err := protocol.DecodePayload[protocol.TaskOwnerEventPayload](env)
 		if err != nil {
@@ -189,14 +190,14 @@ func (d *daemon) handle(env protocol.Envelope) error {
 	return nil
 }
 
-func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) {
+func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, workdir, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	runID := protocol.NewID("run")
 	d.setActive(agent.ID, runID, channelID, cancel)
 	go func() {
 		defer d.clearActive(agent.ID, runID)
 		log.Printf("agent %s handling %s", agent.Name, eventType)
-		if err := d.reply(ctx, eventType, agent, channelID, prompt, peerAgents, threadDepth, recent, causationID); err != nil {
+		if err := d.reply(ctx, eventType, agent, channelID, workdir, prompt, peerAgents, threadDepth, recent, causationID); err != nil {
 			if errors.Is(err, errTaskCancelled) {
 				log.Printf("agent %s stopped %s", agent.Name, eventType)
 				if statusErr := d.sendStatus(agent.ID, "idle", causationID); statusErr != nil {
@@ -212,7 +213,7 @@ func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, p
 	}()
 }
 
-func (d *daemon) reply(ctx context.Context, eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) error {
+func (d *daemon) reply(ctx context.Context, eventType string, agent protocol.Agent, channelID, workdir, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) error {
 	d.ensureAgent(agent.ID)
 	if err := d.sendStatus(agent.ID, "thinking", causationID); err != nil {
 		return err
@@ -232,6 +233,7 @@ func (d *daemon) reply(ctx context.Context, eventType string, agent protocol.Age
 		EventType:   eventType,
 		ServerID:    d.serverID,
 		ChannelID:   channelID,
+		Workdir:     d.effectiveWorkdir(workdir),
 		Prompt:      prompt,
 		Agent:       agent,
 		PeerAgents:  peerAgents,
@@ -330,7 +332,7 @@ func (d *daemon) buildAgentReply(ctx context.Context, request runnerRequest) (st
 		}
 		return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 	}
-	command, format, err := d.commandForAgent(request.Agent)
+	command, format, err := d.commandForAgent(request.Agent, request.Workdir)
 	if err != nil {
 		if request.Agent.Runtime == "demo" {
 			if err := sleepWithCancel(ctx, 450*time.Millisecond); err != nil {
@@ -365,11 +367,12 @@ func (d *daemon) runExternalAgent(parent context.Context, request runnerRequest,
 	defer cancel()
 
 	cmd := shellCommand(ctx, command)
-	cmd.Dir = d.runnerWorkdir
+	cmd.Dir = request.Workdir
 	cmd.Env = append(os.Environ(),
 		"OPEN_AGENT_EVENT_TYPE="+request.EventType,
 		"OPEN_AGENT_SERVER_ID="+request.ServerID,
 		"OPEN_AGENT_CHANNEL_ID="+request.ChannelID,
+		"OPEN_AGENT_WORKDIR="+request.Workdir,
 		"OPEN_AGENT_ID="+request.Agent.ID,
 		"OPEN_AGENT_NAME="+request.Agent.Name,
 		"OPEN_AGENT_RUNTIME="+request.Agent.Runtime,
@@ -424,6 +427,17 @@ func (d *daemon) runExternalAgent(parent context.Context, request runnerRequest,
 	return text, nil
 }
 
+func (d *daemon) effectiveWorkdir(workdir string) string {
+	next := strings.TrimSpace(workdir)
+	if next == "" {
+		return d.runnerWorkdir
+	}
+	if filepath.IsAbs(next) {
+		return next
+	}
+	return filepath.Join(d.runnerWorkdir, next)
+}
+
 func (d *daemon) configureRunner() {
 	switch strings.ToLower(strings.TrimSpace(d.runner)) {
 	case "", "auto":
@@ -459,7 +473,7 @@ func (d *daemon) capabilities() []string {
 	return capabilities
 }
 
-func (d *daemon) commandForAgent(agent protocol.Agent) (string, string, error) {
+func (d *daemon) commandForAgent(agent protocol.Agent, workdir string) (string, string, error) {
 	runtimeName := strings.ToLower(strings.TrimSpace(agent.Runtime))
 	if runtimeName == "" {
 		runtimeName = "codex"
@@ -472,7 +486,7 @@ func (d *daemon) commandForAgent(agent protocol.Agent) (string, string, error) {
 		if err != nil {
 			return "", "", fmt.Errorf("Codex runtime selected for %s, but codex CLI is not available", agent.Name)
 		}
-		return d.codexCommand(path, agent.Model), "prompt", nil
+		return d.codexCommand(path, agent.Model, workdir), "prompt", nil
 	case "claude":
 		path, err := exec.LookPath("claude")
 		if err != nil {
@@ -484,9 +498,9 @@ func (d *daemon) commandForAgent(agent protocol.Agent) (string, string, error) {
 	}
 }
 
-func (d *daemon) codexCommand(path, model string) string {
+func (d *daemon) codexCommand(path, model, workdir string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s --ask-for-approval never --search exec -C %s --sandbox workspace-write --color never --ephemeral", shellQuote(path), shellQuote(d.runnerWorkdir))
+	fmt.Fprintf(&b, "%s --ask-for-approval never --search exec -C %s --sandbox workspace-write --color never --ephemeral", shellQuote(path), shellQuote(workdir))
 	if strings.TrimSpace(model) != "" {
 		fmt.Fprintf(&b, " -m %s", shellQuote(strings.TrimSpace(model)))
 	}
@@ -519,10 +533,15 @@ func buildRunnerPrompt(request runnerRequest) string {
 		fmt.Fprintf(&b, "Model: %s\n", request.Agent.Model)
 	}
 	fmt.Fprintf(&b, "Event type: %s\n", request.EventType)
-	fmt.Fprintf(&b, "Channel ID: %s\n\n", request.ChannelID)
+	fmt.Fprintf(&b, "Channel ID: %s\n", request.ChannelID)
+	if request.Workdir != "" {
+		fmt.Fprintf(&b, "Working directory: %s\n", request.Workdir)
+	}
+	b.WriteString("\n")
 	if request.EventType == "task.assigned" {
 		b.WriteString("Task workflow:\n")
 		b.WriteString("- You are the current owner of this task; the server has already moved it to Doing.\n")
+		b.WriteString("- Use the working directory above as the task workspace.\n")
 		b.WriteString("- Work in the task channel and keep progress concrete.\n")
 		b.WriteString("- If this response finishes the requested work and it is ready for human or QA review, end with exactly: TASK_STATUS: review\n")
 		b.WriteString("- Never mark the task Done yourself; Review is the handoff state.\n\n")
@@ -531,6 +550,7 @@ func buildRunnerPrompt(request runnerRequest) string {
 		b.WriteString("Task update workflow:\n")
 		b.WriteString("- You are still the owner of this task.\n")
 		b.WriteString("- Treat this update as the latest source of truth and revise your execution plan if needed.\n")
+		b.WriteString("- Use the working directory above as the task workspace.\n")
 		b.WriteString("- If this response finishes the requested work and it is ready for human or QA review, end with exactly: TASK_STATUS: review\n")
 		b.WriteString("- Never mark the task Done yourself; Review is the handoff state.\n\n")
 	}

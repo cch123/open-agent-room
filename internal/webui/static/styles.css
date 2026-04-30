@@ -1237,9 +1237,10 @@ h2 {
 
 .task-card-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 52px 64px 28px;
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 34px;
+  gap: 7px;
   align-items: center;
+  padding-top: 2px;
 }
 
 .task-status-control {
@@ -1247,11 +1248,12 @@ h2 {
   --status-bg: rgba(49, 95, 122, 0.1);
   position: relative;
   display: flex;
+  grid-column: 1 / -1;
   min-width: 0;
-  min-height: 32px;
+  min-height: 34px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--status-bg);
   color: var(--ink);
   overflow: hidden;
@@ -1264,9 +1266,10 @@ h2 {
   min-width: 0;
   align-items: center;
   gap: 7px;
-  padding: 5px 24px 5px 9px;
+  min-height: 34px;
+  padding: 0 26px 0 10px;
   color: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 820;
   line-height: 1;
 }
@@ -1283,8 +1286,8 @@ h2 {
   position: absolute;
   right: 9px;
   top: 50%;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   opacity: 0.7;
@@ -1394,7 +1397,7 @@ h2 {
   inset: 0;
   width: 100%;
   height: 100%;
-  min-height: 32px;
+  min-height: 34px;
   opacity: 0;
   cursor: pointer;
 }
@@ -1406,6 +1409,28 @@ h2 {
 
 .task-card-controls .item-action {
   width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.task-card-controls .item-delete {
+  justify-self: end;
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  opacity: 0.58;
+}
+
+.task-card-controls .item-delete:hover,
+.task-card-controls .item-delete:focus-visible {
+  border-color: rgba(190, 18, 60, 0.18);
+  opacity: 1;
 }
 
 .task-lane-empty,
