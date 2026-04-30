@@ -150,7 +150,7 @@ func TestRouteTargetsFromAgentReplyIgnoresHumanAndSelfMentions(t *testing.T) {
 	}
 }
 
-func TestRouteTargetsForReplyPayloadFallsBackToPeersUnlessHandedToHuman(t *testing.T) {
+func TestRouteTargetsForReplyPayloadRequiresPeerRequestOrContinueStatus(t *testing.T) {
 	agents := []protocol.Agent{
 		{ID: "agent_lin", Name: "Lin"},
 		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
@@ -160,8 +160,17 @@ func TestRouteTargetsForReplyPayloadFallsBackToPeersUnlessHandedToHuman(t *testi
 		Text:       "I agree with this direction.",
 		PeerAgents: []protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
 	}, "agent_lin", agents)
+	if len(got) != 0 {
+		t.Fatalf("plain agreement should not continue peer thread, got %v", got)
+	}
+
+	got = routeTargetsForReplyPayload(protocol.AgentReplyPayload{
+		Text:         "I need another pass from the peer.",
+		PeerAgents:   []protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
+		ThreadStatus: protocol.ThreadStatusContinue,
+	}, "agent_lin", agents)
 	if !reflect.DeepEqual(got, []string{"agent_claudelocal"}) {
-		t.Fatalf("peer fallback targets = %v", got)
+		t.Fatalf("continue status fallback targets = %v", got)
 	}
 
 	got = routeTargetsForReplyPayload(protocol.AgentReplyPayload{
@@ -170,6 +179,31 @@ func TestRouteTargetsForReplyPayloadFallsBackToPeersUnlessHandedToHuman(t *testi
 	}, "agent_lin", agents)
 	if len(got) != 0 {
 		t.Fatalf("human handoff should not route to peers, got %v", got)
+	}
+}
+
+func TestRouteTargetsForReplyPayloadStopsAckPingPong(t *testing.T) {
+	agents := []protocol.Agent{
+		{ID: "agent_qa", Name: "QA"},
+		{ID: "agent_architect", Name: "Architect"},
+	}
+
+	got := routeTargetsForReplyPayload(protocol.AgentReplyPayload{
+		Text:        "@QA 收到，当前结论一致，没有具体需求，保持待命。",
+		PeerAgents:  []protocol.Agent{{ID: "agent_qa", Name: "QA"}},
+		ThreadDepth: 3,
+	}, "agent_architect", agents)
+	if len(got) != 0 {
+		t.Fatalf("ack/standby reply should not route, got %v", got)
+	}
+
+	got = routeTargetsForReplyPayload(protocol.AgentReplyPayload{
+		Text:        "@QA 请补充边界测试场景。",
+		PeerAgents:  []protocol.Agent{{ID: "agent_qa", Name: "QA"}},
+		ThreadDepth: 3,
+	}, "agent_architect", agents)
+	if !reflect.DeepEqual(got, []string{"agent_qa"}) {
+		t.Fatalf("concrete peer request targets = %v", got)
 	}
 }
 

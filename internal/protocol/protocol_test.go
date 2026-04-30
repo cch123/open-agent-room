@@ -32,6 +32,24 @@ func TestMentionHandleForAgentNames(t *testing.T) {
 	}
 }
 
+func TestStripThreadStatusMarker(t *testing.T) {
+	clean, status := StripThreadStatusMarker("@QA 收到，保持待命。\nTHREAD_STATUS: standby")
+	if clean != "@QA 收到，保持待命。" {
+		t.Fatalf("clean text = %q", clean)
+	}
+	if status != ThreadStatusStandby {
+		t.Fatalf("thread status = %q", status)
+	}
+	if !ThreadStatusStopsRouting(status) {
+		t.Fatal("standby should stop routing")
+	}
+
+	clean, status = StripThreadStatusMarker("Need QA input.\nTHREAD_STATUS: needs_response")
+	if clean != "Need QA input." || status != ThreadStatusContinue {
+		t.Fatalf("continue marker parsed as clean=%q status=%q", clean, status)
+	}
+}
+
 func TestEnvelopeRoundTrip(t *testing.T) {
 	env := NewEnvelope("srv_test", "agent.status", Actor{Kind: "agent", ID: "agent_ada"}, Scope{Kind: "server", ID: "srv_test"}, AgentStatusPayload{AgentID: "agent_ada", Status: "idle"}, "")
 

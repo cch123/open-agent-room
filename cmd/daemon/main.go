@@ -249,12 +249,14 @@ func (d *daemon) reply(ctx context.Context, eventType string, agent protocol.Age
 	if err != nil {
 		reply = fmt.Sprintf("Local runner failed: %v\n\nFalling back to demo runtime.\n\n%s", err, buildReply(agent, prompt, memories, peerAgents))
 	}
+	cleanReply, threadStatus := protocol.StripThreadStatusMarker(reply)
 	replyEnv := d.newEnvelope("agent.reply", protocol.Actor{Kind: "agent", ID: agent.ID, Name: agent.Name}, protocol.Scope{Kind: "channel", ID: channelID}, protocol.AgentReplyPayload{
-		AgentID:     agent.ID,
-		ChannelID:   channelID,
-		Text:        reply,
-		PeerAgents:  peerAgents,
-		ThreadDepth: threadDepth,
+		AgentID:      agent.ID,
+		ChannelID:    channelID,
+		Text:         cleanReply,
+		PeerAgents:   peerAgents,
+		ThreadDepth:  threadDepth,
+		ThreadStatus: threadStatus,
 	}, causationID)
 	if err := d.writeEnvelope(replyEnv); err != nil {
 		return err
@@ -585,7 +587,7 @@ func buildRunnerPrompt(request runnerRequest) string {
 			}
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "\nCollaboration rule: This is turn %d of an agent-to-agent thread. During peer discussion, keep the reply short, concrete, and under 8 lines; do not paste the full proposal or long documentation yet. Use plain chat only during peer discussion: no Markdown headings, numbered document outlines, tables, code blocks, or document markers. If you still need peer input, explicitly mention the other participant using the exact @handle listed above and ask or answer them directly. Do not mention @You until the peer discussion has converged or you have a concrete final proposal. If the solution is settled, stop mentioning peer agents, provide only the final Markdown document between these exact markers, then mention @You after the end marker with a short handoff:\n<<<MARKDOWN_DOCUMENT>>>\n# Title\n...\n<<<END_MARKDOWN_DOCUMENT>>>\nAny handoff note, caveat, or @You message must be outside the markers, after <<<END_MARKDOWN_DOCUMENT>>>.\n\n", request.ThreadDepth+1)
+		fmt.Fprintf(&b, "\nCollaboration rule: This is turn %d of an agent-to-agent thread. During peer discussion, keep the reply short, concrete, and under 8 lines; do not paste the full proposal or long documentation yet. Use plain chat only during peer discussion: no Markdown headings, numbered document outlines, tables, code blocks, or document markers. Do not mention another agent just to acknowledge, agree, say received, or stay on standby. End every peer-discussion reply with exactly one control line: THREAD_STATUS: continue when you are asking a concrete peer question or requesting a specific peer action; THREAD_STATUS: standby when you are acknowledging, agreeing, waiting for user input, or have no concrete peer request; THREAD_STATUS: final when the peer discussion has converged and you are handing the result to @You. The server only routes another peer turn for continue or a clear request. If you still need peer input, explicitly mention the other participant using the exact @handle listed above and ask or answer them directly. Do not mention @You until the peer discussion has converged or you have a concrete final proposal. If the solution is settled, stop mentioning peer agents, provide only the final Markdown document between these exact markers, then mention @You after the end marker with a short handoff:\n<<<MARKDOWN_DOCUMENT>>>\n# Title\n...\n<<<END_MARKDOWN_DOCUMENT>>>\nAny handoff note, caveat, or @You message must be outside the markers, after <<<END_MARKDOWN_DOCUMENT>>>. Put THREAD_STATUS after any handoff note.\n\n", request.ThreadDepth+1)
 	}
 	if len(request.Recent) > 0 {
 		b.WriteString("Recent channel context:\n")

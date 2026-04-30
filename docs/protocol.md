@@ -80,19 +80,20 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 5. If a channel has no active agent and the message has no `@`, it routes to the channel's configured `defaultAgentId`.
 6. If `defaultAgentId` is not set, routing falls back to the first agent in that channel's member list.
 7. New channels include the registered humans and current agents as members, then default to the workspace's first agent.
-8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants; the daemon prompt tells each runtime to explicitly `@` its peers.
-9. Agent replies that mention another agent are routed as the next agent-to-agent turn with `threadDepth + 1`, capped at 6 turns.
-10. If a multi-agent reply forgets both `@peer` and `@You`, the server falls back to the reply payload's `peerAgents` so the discussion does not silently stop.
-11. Agent replies are routed when they are appended; daemon reconnects only backfill recent per-target mentions that have no matching `agent.message` route yet.
-12. `@You` is a terminal handoff marker for human review, not an agent route target.
-13. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
-14. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
-15. Agent replies are visible messages and also become protocol events in the inspector.
-16. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
-17. Each agent can carry a `systemPrompt`; the daemon includes it before task context for that agent only.
-18. Skills live in the global skill library and can carry normalized `tags`; each agent carries `skillIds`, and snapshots hydrate the attached `skills` for daemon dispatch.
-19. The daemon includes only the hydrated skills attached to the invoked agent in the runner request and prompt.
-20. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
+8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants.
+9. Agent-to-agent replies use `threadStatus` to prevent low-value ping-pong: `continue` can request another peer turn, while `standby`, `handoff`, and `final` stop automatic peer routing.
+10. A peer mention in an agent reply is routed only when the reply clearly asks for a peer response/action or carries `threadStatus: "continue"`.
+11. Plain acknowledgements such as "received", "confirmed", "standing by", or "no further action" are terminal for routing even if they mention another agent.
+12. Agent replies are routed when they are appended; daemon reconnects only backfill recent per-target mentions that have no matching `agent.message` route yet and still pass the same `threadStatus` gate.
+13. `@You` is a terminal handoff marker for human review, not an agent route target.
+14. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
+15. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
+16. Agent replies are visible messages and also become protocol events in the inspector.
+17. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
+18. Each agent can carry a `systemPrompt`; the daemon includes it before task context for that agent only.
+19. Skills live in the global skill library and can carry normalized `tags`; each agent carries `skillIds`, and snapshots hydrate the attached `skills` for daemon dispatch.
+20. The daemon includes only the hydrated skills attached to the invoked agent in the runner request and prompt.
+21. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
 
 ## Daemon Handshake
 

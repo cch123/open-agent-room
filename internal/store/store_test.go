@@ -32,6 +32,81 @@ func TestDeleteChannelRemovesMessagesAndKeepsOneChannel(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskChannelHidesChannelAndKeepsMessages(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.AddTask("Archive discussion", "Keep this task history.", "", "lane_todo", "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, ch, _, err := st.CreateTaskChannel(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := st.AddMessage(protocol.Message{
+		ChannelID:  ch.ID,
+		AuthorKind: "human",
+		AuthorID:   "usr_you",
+		AuthorName: "You",
+		Text:       "keep task context",
+	}, protocol.NewEnvelope(st.ServerID(), "message.created", protocol.Actor{
+		Kind: "human",
+		ID:   "usr_you",
+		Name: "You",
+	}, protocol.Scope{Kind: "channel", ID: ch.ID}, nil, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hidden, err := st.DeleteChannel(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hidden.Hidden {
+		t.Fatal("expected task channel delete to hide the channel")
+	}
+
+	snapshot := st.Snapshot()
+	var foundChannel bool
+	for _, got := range snapshot.Channels {
+		if got.ID != ch.ID {
+			continue
+		}
+		foundChannel = true
+		if !got.Hidden {
+			t.Fatal("task channel remained visible after delete")
+		}
+	}
+	if !foundChannel {
+		t.Fatal("task channel was removed instead of hidden")
+	}
+
+	var foundMessage bool
+	for _, got := range snapshot.Messages {
+		if got.ID == msg.ID && got.ChannelID == ch.ID {
+			foundMessage = true
+		}
+	}
+	if !foundMessage {
+		t.Fatal("task channel message was removed")
+	}
+
+	var foundTask bool
+	for _, got := range snapshot.Tasks {
+		if got.ID == linked.ID {
+			foundTask = true
+			if got.ChannelID != ch.ID {
+				t.Fatalf("task channel link = %s, want %s", got.ChannelID, ch.ID)
+			}
+		}
+	}
+	if !foundTask {
+		t.Fatal("linked task was removed")
+	}
+}
+
 func TestDeleteAgentUpdatesChannelDefaults(t *testing.T) {
 	st, err := New(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {

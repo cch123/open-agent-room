@@ -221,6 +221,12 @@ func (s *Store) DeleteChannel(id string) (protocol.Channel, error) {
 		if ch.ID != id && ch.Name != id {
 			continue
 		}
+		if s.channelHasTaskLocked(ch.ID) {
+			s.state.Channels[i].Hidden = true
+			ch = s.state.Channels[i]
+			s.touchLocked()
+			return ch, s.saveLocked()
+		}
 		s.state.Channels = append(s.state.Channels[:i], s.state.Channels[i+1:]...)
 		messages := s.state.Messages[:0]
 		for _, msg := range s.state.Messages {
@@ -233,6 +239,15 @@ func (s *Store) DeleteChannel(id string) (protocol.Channel, error) {
 		return ch, s.saveLocked()
 	}
 	return protocol.Channel{}, errors.New("channel not found")
+}
+
+func (s *Store) channelHasTaskLocked(channelID string) bool {
+	for _, task := range s.state.Tasks {
+		if task.ChannelID == channelID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) AddTaskLane(name string) (protocol.TaskLane, error) {

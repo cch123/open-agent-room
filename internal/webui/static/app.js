@@ -28,6 +28,8 @@ const state = {
   taskDrawerDraft: "",
   agentStatusById: {},
   editingAgentId: "",
+  channelManageMode: false,
+  agentManageMode: false,
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
@@ -77,6 +79,10 @@ const els = {
   settingsButton: document.querySelector("#settings-button"),
   settingsDialog: document.querySelector("#settings-dialog"),
   themeChoices: document.querySelectorAll("[data-theme-choice]"),
+  newChannel: document.querySelector("#new-channel"),
+  manageChannels: document.querySelector("#manage-channels"),
+  newAgent: document.querySelector("#new-agent"),
+  manageAgents: document.querySelector("#manage-agents"),
   roomEyebrow: document.querySelector("#room-eyebrow"),
   roomName: document.querySelector("#room-name"),
   defaultAgentControl: document.querySelector(".default-agent-control"),
@@ -200,12 +206,13 @@ function render() {
   const agents = state.snapshot.agents || [];
   const daemons = state.snapshot.daemons || [];
   const events = state.snapshot.events || [];
+  const tasks = state.snapshot.tasks || [];
+  const taskLanes = state.snapshot.taskLanes || [];
+  const sidebarChannels = visibleSidebarChannels(channels, tasks, taskLanes);
   if (!channels.some((channel) => channel.id === state.channelId)) {
     state.channelId = channels[0]?.id || "";
   }
   const current = channels.find((channel) => channel.id === state.channelId);
-  const tasks = state.snapshot.tasks || [];
-  const taskLanes = state.snapshot.taskLanes || [];
   const currentTask = taskForChannel(current, tasks);
   const currentTaskLane = currentTask ? taskLanes.find((lane) => lane.id === currentTask.laneId) : null;
   const isSkillView = state.view === "skills";
@@ -225,7 +232,7 @@ function render() {
   initializeChannelReadState(channels);
   if (!isManagementView && current) markChannelRead(current.id);
   if (isTaskView && state.taskDrawerChannelId) markChannelRead(state.taskDrawerChannelId);
-  renderChannels(channels);
+  renderChannels(sidebarChannels);
   renderUsers(users);
   renderAgents(agents);
   if (isSkillView) {
@@ -248,14 +255,17 @@ function render() {
 
 function renderChannels(channels) {
   els.channelList.innerHTML = "";
+  els.channelList.classList.toggle("manage-mode", state.channelManageMode);
+  els.manageChannels.classList.toggle("active", state.channelManageMode);
+  els.manageChannels.textContent = state.channelManageMode ? "Done" : "Manage";
+  els.manageChannels.setAttribute("aria-pressed", state.channelManageMode ? "true" : "false");
   for (const channel of channels) {
     const row = document.createElement("div");
-    row.className = "nav-row";
+    row.className = `nav-row ${state.channelManageMode ? "" : "no-row-action"}`;
     const button = document.createElement("button");
     const isActive = state.view === "channel" && channel.id === state.channelId;
     const unread = isActive ? 0 : channelUnreadCount(channel.id);
     button.className = `nav-item ${isActive ? "active" : ""} ${unread ? "has-unread" : ""}`;
-    button.title = channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`;
     button.dataset.tooltip = channel.topic ? `#${channel.name}\n${channel.topic}` : `#${channel.name}`;
     button.setAttribute("aria-label", unread ? `#${channel.name}, ${unread} unread` : `#${channel.name}`);
     button.innerHTML = `
@@ -268,14 +278,17 @@ function renderChannels(channels) {
       markChannelRead(channel.id);
       render();
     });
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "item-delete";
-    deleteButton.title = `Delete #${channel.name}`;
-    deleteButton.setAttribute("aria-label", `Delete channel ${channel.name}`);
-    deleteButton.textContent = "x";
-    deleteButton.addEventListener("click", () => deleteChannel(channel));
-    row.append(button, deleteButton);
+    row.append(button);
+    if (state.channelManageMode) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "item-delete visible";
+      deleteButton.title = `Delete #${channel.name}`;
+      deleteButton.setAttribute("aria-label", `Delete channel ${channel.name}`);
+      deleteButton.textContent = "x";
+      deleteButton.addEventListener("click", () => deleteChannel(channel));
+      row.append(deleteButton);
+    }
     els.channelList.append(row);
   }
 }
@@ -312,6 +325,10 @@ function renderUsers(users) {
 
 function renderAgents(agents) {
   els.agentList.innerHTML = "";
+  els.agentList.classList.toggle("manage-mode", state.agentManageMode);
+  els.manageAgents.classList.toggle("active", state.agentManageMode);
+  els.manageAgents.textContent = state.agentManageMode ? "Done" : "Manage";
+  els.manageAgents.setAttribute("aria-pressed", state.agentManageMode ? "true" : "false");
   const nextAgentStatusById = {};
   for (const agent of agents) {
     const row = document.createElement("div");
@@ -321,6 +338,7 @@ function renderAgents(agents) {
     const status = normalizeAgentStatus(agent.status);
     const previousStatus = state.agentStatusById[agent.id];
     nextAgentStatusById[agent.id] = status;
+    row.dataset.agentStatus = status;
     if (previousStatus && previousStatus !== status) {
       button.classList.add("status-changed");
     }
@@ -332,7 +350,6 @@ function renderAgents(agents) {
     button.dataset.profileKind = "agent";
     button.dataset.profileId = agent.id;
     button.dataset.profileName = agent.name;
-    button.dataset.agentStatus = status;
     button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span class="agent-copy"><span class="agent-name-line"><strong>${escapeHTML(agent.name)}</strong>${agentStatusIndicator(status)}</span><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
       insertMention(agent.name);
@@ -340,7 +357,6 @@ function renderAgents(agents) {
     const skillButton = document.createElement("button");
     skillButton.type = "button";
     skillButton.className = "agent-action-button";
-    skillButton.title = `Manage skills for ${agent.name}`;
     skillButton.dataset.tooltip = `Manage skills\n${agent.name}`;
     skillButton.setAttribute("aria-label", `Manage skills for ${agent.name}`);
     skillButton.textContent = "✦";
@@ -348,22 +364,23 @@ function renderAgents(agents) {
     const editButton = document.createElement("button");
     editButton.type = "button";
     editButton.className = "agent-action-button";
-    editButton.title = `Edit ${agent.name}`;
     editButton.dataset.tooltip = `Edit agent\n${agent.name}`;
     editButton.setAttribute("aria-label", `Edit agent ${agent.name}`);
     editButton.textContent = "✎";
     editButton.addEventListener("click", () => openAgentDialog(agent));
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "agent-action-button danger";
-    deleteButton.title = `Delete ${agent.name}`;
-    deleteButton.dataset.tooltip = `Delete agent\n${agent.name}`;
-    deleteButton.setAttribute("aria-label", `Delete agent ${agent.name}`);
-    deleteButton.textContent = "x";
-    deleteButton.addEventListener("click", () => deleteAgent(agent));
     const actionGroup = document.createElement("div");
     actionGroup.className = "agent-actions";
-    actionGroup.append(editButton, skillButton, deleteButton);
+    actionGroup.append(editButton, skillButton);
+    if (state.agentManageMode) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "agent-action-button danger";
+      deleteButton.dataset.tooltip = `Layoff\n${agent.name}`;
+      deleteButton.setAttribute("aria-label", `Layoff agent ${agent.name}`);
+      deleteButton.textContent = "x";
+      deleteButton.addEventListener("click", () => deleteAgent(agent));
+      actionGroup.append(deleteButton);
+    }
     row.append(button, actionGroup);
     els.agentList.append(row);
   }
@@ -1259,9 +1276,17 @@ els.defaultAgent.addEventListener("change", async () => {
   }
 });
 
-document.querySelector("#new-agent").addEventListener("click", () => openAgentDialog());
+els.newAgent.addEventListener("click", () => openAgentDialog());
+els.manageAgents.addEventListener("click", () => {
+  state.agentManageMode = !state.agentManageMode;
+  render();
+});
 document.querySelector("#new-user").addEventListener("click", () => els.userDialog.showModal());
-document.querySelector("#new-channel").addEventListener("click", () => els.channelDialog.showModal());
+els.newChannel.addEventListener("click", () => els.channelDialog.showModal());
+els.manageChannels.addEventListener("click", () => {
+  state.channelManageMode = !state.channelManageMode;
+  render();
+});
 els.openTasks.addEventListener("click", () => {
   state.view = "tasks";
   render();
@@ -1597,12 +1622,22 @@ function renderTaskLanePicker(selectedID = "") {
 }
 
 async function deleteChannel(channel) {
-  if (!window.confirm(`Delete #${channel.name}? This removes the channel and its messages.`)) return;
+  const task = taskForChannel(channel);
+  const prompt = task
+    ? `Hide #${channel.name}? This task channel and its messages stay available from the task.`
+    : `Delete #${channel.name}? This removes the channel and its messages.`;
+  if (!window.confirm(prompt)) return;
   try {
-    await api(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
-    forgetChannelRead(channel.id);
+    const result = await api(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
+    if (result.hidden && state.snapshot) {
+      state.snapshot.channels = state.snapshot.channels.map((candidate) => (candidate.id === result.id ? result : candidate));
+    } else {
+      forgetChannelRead(channel.id);
+    }
     if (state.channelId === channel.id) {
-      const next = state.snapshot.channels.find((candidate) => candidate.id !== channel.id);
+      const next = visibleSidebarChannels(state.snapshot.channels || [], state.snapshot.tasks || [], state.snapshot.taskLanes || []).find(
+        (candidate) => candidate.id !== channel.id,
+      );
       state.channelId = next?.id || "";
     }
   } catch (error) {
@@ -1991,6 +2026,24 @@ function taskLaneTone(name = "") {
   if (normalized === "done" || normalized === "complete" || normalized === "completed") return "done";
   if (normalized === "unplanned" || normalized === "unplaned") return "unplanned";
   return "custom";
+}
+
+function visibleSidebarChannels(channels, tasks, lanes) {
+  const doneTaskChannels = doneTaskChannelIds(tasks, lanes);
+  return channels.filter((channel) => !channel.hidden && !doneTaskChannels.has(channel.id));
+}
+
+function doneTaskChannelIds(tasks, lanes) {
+  const laneById = new Map((lanes || []).map((lane) => [lane.id, lane]));
+  const doneChannels = new Set();
+  for (const task of tasks || []) {
+    if (!task.channelId) continue;
+    const lane = laneById.get(task.laneId);
+    if (taskLaneTone(lane?.name || "") === "done") {
+      doneChannels.add(task.channelId);
+    }
+  }
+  return doneChannels;
 }
 
 function taskAssigneeOptionsHTML(users, agents, task) {

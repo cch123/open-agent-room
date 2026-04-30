@@ -268,7 +268,11 @@ func (a *app) handleChannelSubroutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.clearActiveChannel(ch.ID)
-		env := protocol.NewEnvelope(a.store.ServerID(), "channel.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, ch, "")
+		eventType := "channel.deleted"
+		if ch.Hidden {
+			eventType = "channel.hidden"
+		}
+		env := protocol.NewEnvelope(a.store.ServerID(), eventType, protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, ch, "")
 		_ = a.store.AddEnvelope(env)
 		a.broadcast()
 		writeJSON(w, http.StatusOK, ch)
@@ -1178,9 +1182,25 @@ func routeTargetsFromAgentReply(text, authorAgentID string, agents []protocol.Ag
 }
 
 func routeTargetsForReplyPayload(payload protocol.AgentReplyPayload, authorAgentID string, agents []protocol.Agent) []string {
+	threadStatus := protocol.NormalizeThreadStatus(payload.ThreadStatus)
+	if threadStatus == "" {
+		_, threadStatus = protocol.StripThreadStatusMarker(payload.Text)
+	}
+	if protocol.ThreadStatusStopsRouting(threadStatus) {
+		return nil
+	}
 	targets := routeTargetsFromAgentReply(payload.Text, authorAgentID, agents)
-	if len(targets) > 0 || mentionsCurrentUser(payload.Text) {
+	if len(targets) > 0 {
+		if threadStatus == protocol.ThreadStatusContinue || agentReplyRequestsPeerTurn(payload.Text) {
+			return targets
+		}
+		return nil
+	}
+	if mentionsCurrentUser(payload.Text) {
 		return targets
+	}
+	if threadStatus != protocol.ThreadStatusContinue {
+		return nil
 	}
 	seen := make(map[string]bool)
 	for _, peer := range payload.PeerAgents {
@@ -1194,6 +1214,41 @@ func routeTargetsForReplyPayload(payload protocol.AgentReplyPayload, authorAgent
 		seen[peer.ID] = true
 	}
 	return targets
+}
+
+func agentReplyRequestsPeerTurn(text string) bool {
+	lower := strings.ToLower(text)
+	if strings.ContainsAny(text, "?？") {
+		return true
+	}
+	signals := []string{
+		"请",
+		"帮",
+		"麻烦",
+		"需要你",
+		"能否",
+		"可否",
+		"是否",
+		"你觉得",
+		"怎么看",
+		"确认一下",
+		"最终确认",
+		"can you",
+		"could you",
+		"please",
+		"what do you",
+		"do you",
+		"wdyt",
+		"review",
+		"validate",
+		"check",
+	}
+	for _, signal := range signals {
+		if strings.Contains(lower, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 func mentionsCurrentUser(text string) bool {
@@ -1225,6 +1280,7 @@ func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []age
 
 	handledReplyTargets := make(map[string]map[string]bool)
 	replyDepths := make(map[string]int)
+	replyPayloads := make(map[string]protocol.AgentReplyPayload)
 	for _, env := range snapshot.Events {
 		if env.Type == "agent.message" && env.Trace.CausationID != "" {
 			payload, err := protocol.DecodePayload[protocol.AgentMessagePayload](env)
@@ -1240,6 +1296,7 @@ func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []age
 			payload, err := protocol.DecodePayload[protocol.AgentReplyPayload](env)
 			if err == nil {
 				replyDepths[env.ID] = payload.ThreadDepth
+				replyPayloads[env.ID] = payload
 			}
 		}
 	}
@@ -1274,7 +1331,11 @@ func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []age
 		if !ok {
 			continue
 		}
-		mentionedTargetIDs := routeTargetsFromAgentReply(msg.Text, author.ID, snapshot.Agents)
+		payload := replyPayloads[msg.ProtocolID]
+		if payload.Text == "" {
+			payload.Text = msg.Text
+		}
+		mentionedTargetIDs := routeTargetsForReplyPayload(payload, author.ID, snapshot.Agents)
 		if len(mentionedTargetIDs) == 0 {
 			continue
 		}
@@ -1469,8 +1530,14 @@ func (a *app) appendAgentReply(payload protocol.AgentReplyPayload, env protocol.
 	if !ok {
 		return
 	}
+	cleanText, threadStatus := protocol.StripThreadStatusMarker(payload.Text)
+	payload.Text = cleanText
+	if payload.ThreadStatus == "" {
+		payload.ThreadStatus = threadStatus
+	}
 	cleanText, explicitReview := stripTaskReviewMarker(payload.Text)
 	payload.Text = cleanText
+	env.Payload = protocol.Raw(payload)
 	msg := protocol.Message{
 		ChannelID:  payload.ChannelID,
 		AuthorKind: "agent",

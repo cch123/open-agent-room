@@ -56,6 +56,7 @@ type Channel struct {
 	Topic          string   `json:"topic"`
 	MemberIDs      []string `json:"memberIds"`
 	DefaultAgentID string   `json:"defaultAgentId,omitempty"`
+	Hidden         bool     `json:"hidden,omitempty"`
 }
 
 type MemoryItem struct {
@@ -186,12 +187,13 @@ type TaskOwnerEventPayload struct {
 }
 
 type AgentReplyPayload struct {
-	AgentID     string   `json:"agentId"`
-	ChannelID   string   `json:"channelId"`
-	Text        string   `json:"text"`
-	Memory      []string `json:"memory,omitempty"`
-	PeerAgents  []Agent  `json:"peerAgents,omitempty"`
-	ThreadDepth int      `json:"threadDepth,omitempty"`
+	AgentID      string   `json:"agentId"`
+	ChannelID    string   `json:"channelId"`
+	Text         string   `json:"text"`
+	Memory       []string `json:"memory,omitempty"`
+	PeerAgents   []Agent  `json:"peerAgents,omitempty"`
+	ThreadDepth  int      `json:"threadDepth,omitempty"`
+	ThreadStatus string   `json:"threadStatus,omitempty"`
 }
 
 type AgentStatusPayload struct {
@@ -255,6 +257,14 @@ func DecodePayload[T any](env Envelope) (T, error) {
 }
 
 var mentionRE = regexp.MustCompile(`@([^\s@<>()\[\]{}.,，。:：;；!?！？]+)`)
+var threadStatusMarkerRE = regexp.MustCompile(`(?im)^\s*THREAD_STATUS\s*:\s*([a-zA-Z_-]+)\s*$`)
+
+const (
+	ThreadStatusContinue = "continue"
+	ThreadStatusStandby  = "standby"
+	ThreadStatusHandoff  = "handoff"
+	ThreadStatusFinal    = "final"
+)
 
 func ExtractMentions(text string, agents []Agent) []string {
 	matches := mentionRE.FindAllStringSubmatch(text, -1)
@@ -307,6 +317,44 @@ func mentionKey(value string) string {
 
 func mentionNeedsEncoding(value string) bool {
 	return strings.ContainsAny(value, " \t\r\n@<>()[]{}.,，。:：;；!?！？%")
+}
+
+func StripThreadStatusMarker(text string) (string, string) {
+	status := ""
+	clean := threadStatusMarkerRE.ReplaceAllStringFunc(text, func(line string) string {
+		if status == "" {
+			matches := threadStatusMarkerRE.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				status = NormalizeThreadStatus(matches[1])
+			}
+		}
+		return ""
+	})
+	return strings.TrimSpace(clean), status
+}
+
+func NormalizeThreadStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case ThreadStatusContinue, "needs_response", "needs-response", "need_response", "ask", "question":
+		return ThreadStatusContinue
+	case ThreadStatusStandby, "stop", "stopped", "wait", "waiting", "wait_human", "wait-human", "idle", "ack":
+		return ThreadStatusStandby
+	case ThreadStatusHandoff, "human", "to_human", "to-human":
+		return ThreadStatusHandoff
+	case ThreadStatusFinal, "done", "resolved", "settled":
+		return ThreadStatusFinal
+	default:
+		return ""
+	}
+}
+
+func ThreadStatusStopsRouting(status string) bool {
+	switch NormalizeThreadStatus(status) {
+	case ThreadStatusStandby, ThreadStatusHandoff, ThreadStatusFinal:
+		return true
+	default:
+		return false
+	}
 }
 
 func TrimEvents(events []Envelope, limit int) []Envelope {

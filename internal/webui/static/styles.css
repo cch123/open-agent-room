@@ -328,6 +328,7 @@ button:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 12px 10px 5px;
   color: var(--muted);
   font-size: 11px;
@@ -335,9 +336,37 @@ button:focus-visible {
   text-transform: uppercase;
 }
 
+.section-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .humans-title,
 .agents-title {
   margin-top: 5px;
+}
+
+.manage-toggle {
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.manage-toggle:hover,
+.manage-toggle:focus-visible,
+.manage-toggle.active {
+  border-color: rgba(49, 95, 122, 0.28);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .icon-button {
@@ -376,8 +405,22 @@ button:focus-visible {
 }
 
 .agent-row {
+  position: relative;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  padding: 1px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.agent-row > * {
+  position: relative;
+  z-index: 1;
+}
+
+.nav-row.no-row-action {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .nav-item,
@@ -664,15 +707,15 @@ button:focus-visible {
   animation: agent-status-change 0.72s ease-out;
 }
 
-.agent-item[data-agent-status="thinking"],
-.agent-item[data-agent-status="starting"] {
+.agent-row[data-agent-status="thinking"],
+.agent-row[data-agent-status="starting"] {
   border-color: rgba(49, 95, 122, 0.24);
   background: linear-gradient(90deg, rgba(49, 95, 122, 0.08), transparent 68%);
   box-shadow: inset 0 0 0 1px rgba(49, 95, 122, 0.05), 0 8px 18px rgba(21, 28, 36, 0.06);
 }
 
-.agent-item[data-agent-status="thinking"]::before,
-.agent-item[data-agent-status="starting"]::before {
+.agent-row[data-agent-status="thinking"]::before,
+.agent-row[data-agent-status="starting"]::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -687,8 +730,8 @@ button:focus-visible {
   pointer-events: none;
 }
 
-.agent-item[data-agent-status="thinking"]::after,
-.agent-item[data-agent-status="starting"]::after {
+.agent-row[data-agent-status="thinking"]::after,
+.agent-row[data-agent-status="starting"]::after {
   content: "";
   position: absolute;
   z-index: 0;
@@ -755,10 +798,10 @@ button:focus-visible {
   .agent-status-indicator[data-status="thinking"]::before,
   .agent-status-indicator[data-status="starting"]::before,
   .agent-item.status-changed .agent-status-indicator,
-  .agent-item[data-agent-status="thinking"]::before,
-  .agent-item[data-agent-status="starting"]::before,
-  .agent-item[data-agent-status="thinking"]::after,
-  .agent-item[data-agent-status="starting"]::after {
+  .agent-row[data-agent-status="thinking"]::before,
+  .agent-row[data-agent-status="starting"]::before,
+  .agent-row[data-agent-status="thinking"]::after,
+  .agent-row[data-agent-status="starting"]::after {
     animation: none;
   }
 }
@@ -2917,8 +2960,8 @@ menu button:first-child:hover {
   --agent-status-bg: rgba(34, 211, 238, 0.18);
 }
 
-:root[data-theme="dark"] .agent-item[data-agent-status="thinking"],
-:root[data-theme="dark"] .agent-item[data-agent-status="starting"] {
+:root[data-theme="dark"] .agent-row[data-agent-status="thinking"],
+:root[data-theme="dark"] .agent-row[data-agent-status="starting"] {
   background:
     linear-gradient(90deg, rgba(34, 211, 238, 0.13), rgba(251, 59, 143, 0.04) 58%, transparent),
     rgba(15, 23, 38, 0.72);
@@ -2928,16 +2971,16 @@ menu button:first-child:hover {
     0 0 18px rgba(34, 211, 238, 0.12);
 }
 
-:root[data-theme="dark"] .agent-item[data-agent-status="thinking"]::before,
-:root[data-theme="dark"] .agent-item[data-agent-status="starting"]::before {
+:root[data-theme="dark"] .agent-row[data-agent-status="thinking"]::before,
+:root[data-theme="dark"] .agent-row[data-agent-status="starting"]::before {
   background:
     linear-gradient(100deg, transparent 0 22%, rgba(34, 211, 238, 0.26) 38%, rgba(251, 59, 143, 0.16) 48%, transparent 64%),
     radial-gradient(circle at 16% 50%, rgba(34, 211, 238, 0.2), transparent 44%);
   opacity: 0.88;
 }
 
-:root[data-theme="dark"] .agent-item[data-agent-status="thinking"]::after,
-:root[data-theme="dark"] .agent-item[data-agent-status="starting"]::after {
+:root[data-theme="dark"] .agent-row[data-agent-status="thinking"]::after,
+:root[data-theme="dark"] .agent-row[data-agent-status="starting"]::after {
   background:
     linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.9), transparent) 0 0 / 38% 1px no-repeat,
     linear-gradient(180deg, transparent, rgba(251, 59, 143, 0.48), transparent) 100% 0 / 1px 60% no-repeat,
@@ -2970,6 +3013,7 @@ menu button:first-child:hover {
 :root[data-theme="dark"] .icon-button,
 :root[data-theme="dark"] .item-action,
 :root[data-theme="dark"] .agent-action-button,
+:root[data-theme="dark"] .manage-toggle,
 :root[data-theme="dark"] .task-lane-new,
 :root[data-theme="dark"] menu button:first-child,
 :root[data-theme="dark"] .task-toolbar-actions button:first-child {
@@ -2984,6 +3028,9 @@ menu button:first-child:hover {
 :root[data-theme="dark"] .item-action:focus-visible,
 :root[data-theme="dark"] .agent-action-button:hover,
 :root[data-theme="dark"] .agent-action-button:focus-visible,
+:root[data-theme="dark"] .manage-toggle:hover,
+:root[data-theme="dark"] .manage-toggle:focus-visible,
+:root[data-theme="dark"] .manage-toggle.active,
 :root[data-theme="dark"] .task-lane-new:hover,
 :root[data-theme="dark"] menu button:first-child:hover,
 :root[data-theme="dark"] .task-toolbar-actions button:first-child:hover {

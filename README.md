@@ -21,12 +21,25 @@ This project does not reuse Slock branding, assets, private APIs, or source code
 ## Run
 
 ```bash
+make dev
+```
+
+Open `http://localhost:8787`. `make dev` starts both the web server and the local daemon, then stops both when you press Ctrl-C.
+
+If you want to run them in separate terminals:
+
+```bash
+make server
+make daemon
+```
+
+The equivalent raw server command is:
+
+```bash
 go run ./cmd/server
 ```
 
-Open `http://localhost:8787`.
-
-In another terminal, connect the daemon:
+In another terminal, connect the daemon with:
 
 ```bash
 go run ./cmd/daemon
@@ -55,8 +68,7 @@ go run ./cmd/daemon --runner 'codex --ask-for-approval never --search exec -C . 
 ## Build
 
 ```bash
-go build -o open-agent-room ./cmd/server
-go build -o open-agent-daemon ./cmd/daemon
+make build
 ```
 
 ## Configuration
@@ -79,5 +91,5 @@ See [docs/protocol.md](docs/protocol.md) for the message envelope, event types, 
 ## Test
 
 ```bash
-go test ./...
+make test
 ```
