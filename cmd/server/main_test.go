@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -285,14 +286,15 @@ func TestRecentUnhandledAgentMentionRoutesSkipsTrimmedReplyEvent(t *testing.T) {
 }
 
 func TestHandleSkillsFetchesContentFromSourceURL(t *testing.T) {
-	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/markdown")
-		_, _ = w.Write([]byte("# Architecture patterns\n\nPrefer small contexts."))
+	withSkillImportClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "https://raw.githubusercontent.com/acme/skills/main/review/SKILL.md" {
+			t.Fatalf("fetch URL = %s", r.URL.String())
+		}
+		return textResponse(http.StatusOK, "# Review discipline\n\nPrefer small contexts."), nil
 	}))
-	defer source.Close()
 
 	a := newTestApp(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"name":"Architecture","source":"`+source.URL+`"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"source":"https://github.com/acme/skills/blob/main/review/SKILL.md"}`))
 	rec := httptest.NewRecorder()
 
 	a.handleSkills(rec, req)
@@ -304,19 +306,51 @@ func TestHandleSkillsFetchesContentFromSourceURL(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&skill); err != nil {
 		t.Fatal(err)
 	}
+	if skill.Name != "Review discipline" {
+		t.Fatalf("name = %q, want derived heading", skill.Name)
+	}
 	if !strings.Contains(skill.Content, "Prefer small contexts.") {
 		t.Fatalf("content = %q, want fetched source content", skill.Content)
 	}
 }
 
-func TestHandleSkillsReportsSourceFetchFailure(t *testing.T) {
-	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "missing", http.StatusNotFound)
+func TestHandleSkillsImportsSkillsSHPage(t *testing.T) {
+	withSkillImportClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "https://skills.sh/wshobson/agents/architecture-patterns" {
+			t.Fatalf("fetch URL = %s", r.URL.String())
+		}
+		body := `<!doctype html><html><body><div>SKILL.md</div><div><h1>Architecture Patterns</h1><p>Use clean boundaries.</p><ul><li>Keep domain pure</li></ul></div><script>ignored</script></body></html>`
+		return textResponse(http.StatusOK, body), nil
 	}))
-	defer source.Close()
 
 	a := newTestApp(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"name":"Missing","source":"`+source.URL+`"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"source":"https://skills.sh/wshobson/agents/architecture-patterns"}`))
+	rec := httptest.NewRecorder()
+
+	a.handleSkills(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var skill protocol.AgentSkill
+	if err := json.NewDecoder(rec.Body).Decode(&skill); err != nil {
+		t.Fatal(err)
+	}
+	if skill.Name != "Architecture Patterns" {
+		t.Fatalf("name = %q, want derived skills.sh heading", skill.Name)
+	}
+	if !strings.Contains(skill.Content, "# Architecture Patterns") || !strings.Contains(skill.Content, "Use clean boundaries.") {
+		t.Fatalf("content = %q, want extracted skills.sh markdown", skill.Content)
+	}
+}
+
+func TestHandleSkillsReportsSourceFetchFailure(t *testing.T) {
+	withSkillImportClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return textResponse(http.StatusNotFound, "missing"), nil
+	}))
+
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"name":"Missing","source":"https://github.com/acme/skills/blob/main/missing/SKILL.md"}`))
 	rec := httptest.NewRecorder()
 
 	a.handleSkills(rec, req)
@@ -327,6 +361,29 @@ func TestHandleSkillsReportsSourceFetchFailure(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "HTTP 404") {
 		t.Fatalf("body = %s, want HTTP 404 error", rec.Body.String())
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func textResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func withSkillImportClient(t *testing.T, transport http.RoundTripper) {
+	t.Helper()
+	previous := skillImportHTTPClient
+	skillImportHTTPClient = &http.Client{Transport: transport}
+	t.Cleanup(func() {
+		skillImportHTTPClient = previous
+	})
 }
 
 func newTestApp(t *testing.T) *app {

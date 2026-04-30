@@ -11,6 +11,7 @@ const state = {
   },
   skillAgentId: "",
   skillDialogMode: "agent",
+  skillCreateMode: "local",
   skillSearch: "",
   skillTagFilter: "",
 };
@@ -91,9 +92,13 @@ const els = {
   skillAttachRow: document.querySelector("#skill-attach-row"),
   skillAttachSelect: document.querySelector("#skill-attach-select"),
   skillAttach: document.querySelector("#skill-attach"),
+  skillModeButtons: document.querySelectorAll("[data-skill-mode]"),
   skillName: document.querySelector("#skill-name"),
+  skillNameLabel: document.querySelector("#skill-name-label"),
   skillSource: document.querySelector("#skill-source"),
+  skillSourceLabel: document.querySelector("#skill-source-label"),
   skillTags: document.querySelector("#skill-tags"),
+  skillLocalFields: document.querySelector("#skill-local-fields"),
   skillFile: document.querySelector("#skill-file"),
   skillContent: document.querySelector("#skill-content"),
   skillError: document.querySelector("#skill-error"),
@@ -912,20 +917,34 @@ els.skillAttach.addEventListener("click", async () => {
   }
 });
 
+for (const button of els.skillModeButtons) {
+  button.addEventListener("click", () => {
+    state.skillCreateMode = button.dataset.skillMode === "cloud" ? "cloud" : "local";
+    clearSkillError();
+    updateSkillCreateModeUI();
+  });
+}
+
 document.querySelector("#skill-import").addEventListener("click", async (event) => {
   event.preventDefault();
   const name = els.skillName.value.trim();
   const source = els.skillSource.value.trim();
-  const content = els.skillContent.value.trim();
+  const isCloudImport = state.skillCreateMode === "cloud";
+  const content = isCloudImport ? "" : els.skillContent.value.trim();
   const tags = parseSkillTags(els.skillTags.value);
   clearSkillError();
-  if (!name) {
+  if (!name && !isCloudImport) {
     setSkillError("Skill name is required.");
     els.skillName.focus();
     return;
   }
-  if (!content && !isHTTPURL(source)) {
-    setSkillError("Add skill content by choosing a .md/.txt file, pasting instructions, or entering an http(s) Source URL.");
+  if (isCloudImport && !isSupportedCloudSkillURL(source)) {
+    setSkillError("Cloud import supports skills.sh links and GitHub links.");
+    els.skillSource.focus();
+    return;
+  }
+  if (!isCloudImport && !content) {
+    setSkillError("Add skill content by choosing a .md/.txt file or pasting instructions.");
     els.skillContent.focus();
     return;
   }
@@ -997,6 +1016,7 @@ function openSkillDialog(agent) {
     return;
   }
   state.skillDialogMode = "agent";
+  state.skillCreateMode = "local";
   state.skillAgentId = agent.id;
   els.skillName.value = "";
   els.skillSource.value = "";
@@ -1010,6 +1030,7 @@ function openSkillDialog(agent) {
 
 function openGlobalSkillDialog() {
   state.skillDialogMode = "global";
+  state.skillCreateMode = "local";
   state.skillAgentId = "";
   els.skillName.value = "";
   els.skillSource.value = "";
@@ -1029,6 +1050,25 @@ function setSkillError(message) {
 function clearSkillError() {
   els.skillError.textContent = "";
   els.skillError.hidden = true;
+}
+
+function updateSkillCreateModeUI() {
+  const isCloudImport = state.skillCreateMode === "cloud";
+  for (const button of els.skillModeButtons) {
+    const active = button.dataset.skillMode === state.skillCreateMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  els.skillLocalFields.hidden = isCloudImport;
+  els.skillNameLabel.textContent = isCloudImport ? "Skill name (optional)" : "Skill name";
+  els.skillSourceLabel.textContent = isCloudImport ? "Cloud URL" : "Source note";
+  els.skillSource.placeholder = isCloudImport
+    ? "https://skills.sh/owner/repo/skill or https://github.com/owner/repo/blob/main/path/SKILL.md"
+    : "SKILL.md or internal note";
+  const action = state.skillDialogMode === "global"
+    ? (isCloudImport ? "Import" : "Create")
+    : (isCloudImport ? "Import & Attach" : "Create & Attach");
+  document.querySelector("#skill-import").textContent = action;
 }
 
 function renderSkillManager(skills, agents) {
@@ -1171,7 +1211,7 @@ function renderSkillDialog() {
     els.skillList.innerHTML = "";
     els.skillList.hidden = true;
     els.skillAttachRow.hidden = true;
-    document.querySelector("#skill-import").textContent = "Create";
+    updateSkillCreateModeUI();
     return;
   }
 
@@ -1180,7 +1220,7 @@ function renderSkillDialog() {
   els.skillAgentName.textContent = agent ? `${agent.name} · ${runtimeLabel(agent)}` : "";
   els.skillList.hidden = false;
   els.skillAttachRow.hidden = false;
-  document.querySelector("#skill-import").textContent = "Create & Attach";
+  updateSkillCreateModeUI();
   els.skillList.innerHTML = "";
   if (!agent) return;
   renderSkillAttachOptions(agent);
@@ -1346,10 +1386,11 @@ function parseSkillTags(text = "") {
   return tags.filter(Boolean);
 }
 
-function isHTTPURL(value = "") {
+function isSupportedCloudSkillURL(value = "") {
   try {
     const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:";
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return ["skills.sh", "www.skills.sh", "github.com", "raw.githubusercontent.com"].includes(url.hostname.toLowerCase());
   } catch {
     return false;
   }

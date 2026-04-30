@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -348,12 +351,12 @@ func (a *app) handleSkills(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	content, err := resolveSkillImportContent(r, req.Source, req.Content)
+	name, source, content, err := normalizeSkillImportRequest(r, req.Name, req.Source, req.Content)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	req.Content = content
+	req.Name, req.Source, req.Content = name, source, content
 	skill, err := a.store.AddSkill(req.Name, req.Source, req.Content, req.Tags)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -471,7 +474,7 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(req.SkillID) != "" {
 			skill, err = a.store.AttachAgentSkill(agentID, req.SkillID)
 		} else {
-			req.Content, err = resolveSkillImportContent(r, req.Source, req.Content)
+			req.Name, req.Source, req.Content, err = normalizeSkillImportRequest(r, req.Name, req.Source, req.Content)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
@@ -1113,12 +1116,29 @@ func (a *app) errorEnvelope(message, causationID string) protocol.Envelope {
 	return protocol.NewEnvelope(a.store.ServerID(), "error", protocol.Actor{Kind: "system", ID: "system"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]string{"message": message}, causationID)
 }
 
-func resolveSkillImportContent(r *http.Request, source, content string) (string, error) {
+func normalizeSkillImportRequest(r *http.Request, name, source, content string) (string, string, string, error) {
+	name = strings.TrimSpace(name)
 	content = strings.TrimSpace(content)
 	source = strings.TrimSpace(source)
-	if content != "" || !isHTTPSourceURL(source) {
-		return content, nil
+	if content == "" && source != "" {
+		fetchURL, sourceKind, err := resolveCloudSkillURL(source)
+		if err != nil {
+			return "", source, "", err
+		}
+		if fetchURL != "" {
+			content, err = fetchRemoteSkillContent(r, fetchURL, sourceKind)
+			if err != nil {
+				return "", source, "", err
+			}
+		}
 	}
+	if name == "" && content != "" {
+		name = deriveSkillName(source, content)
+	}
+	return name, source, content, nil
+}
+
+func fetchRemoteSkillContent(r *http.Request, source, sourceKind string) (string, error) {
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, source, nil)
 	if err != nil {
 		return "", fmt.Errorf("skill source URL is invalid: %w", err)
@@ -1139,19 +1159,163 @@ func resolveSkillImportContent(r *http.Request, source, content string) (string,
 	if len(body) > maxRemoteSkillContentSize {
 		return "", errors.New("skill source content is too large")
 	}
-	content = strings.TrimSpace(string(body))
+	content := strings.TrimSpace(string(body))
+	if sourceKind == "skills.sh" {
+		content, err = extractSkillsSHContent(content)
+		if err != nil {
+			return "", err
+		}
+	}
 	if content == "" {
 		return "", errors.New("skill source returned empty content")
 	}
 	return content, nil
 }
 
-func isHTTPSourceURL(raw string) bool {
+func resolveCloudSkillURL(raw string) (string, string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return false
+		return "", "", fmt.Errorf("skill source URL is invalid: %w", err)
 	}
-	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+	if u.Scheme == "" || u.Host == "" {
+		return "", "", nil
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", "", errors.New("cloud import supports skills.sh and GitHub links")
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "skills.sh", "www.skills.sh":
+		return u.String(), "skills.sh", nil
+	case "raw.githubusercontent.com":
+		return u.String(), "raw", nil
+	case "github.com":
+		rawURL, err := githubRawSkillURL(u)
+		return rawURL, "raw", err
+	default:
+		return "", "", errors.New("cloud import supports skills.sh and GitHub links")
+	}
+}
+
+func githubRawSkillURL(u *url.URL) (string, error) {
+	parts := strings.Split(strings.Trim(u.EscapedPath(), "/"), "/")
+	for i := range parts {
+		value, err := url.PathUnescape(parts[i])
+		if err == nil {
+			parts[i] = value
+		}
+	}
+	if len(parts) < 3 {
+		return "", errors.New("GitHub URL must point to a file or skill directory")
+	}
+	owner, repo := parts[0], parts[1]
+	switch parts[2] {
+	case "blob", "raw":
+		if len(parts) < 5 {
+			return "", errors.New("GitHub file URL must include branch and file path")
+		}
+		ref := parts[3]
+		filePath := strings.Join(parts[4:], "/")
+		return "https://raw.githubusercontent.com/" + path.Join(owner, repo, ref, filePath), nil
+	case "tree":
+		if len(parts) < 5 {
+			return "", errors.New("GitHub skill directory URL must include branch and directory path")
+		}
+		ref := parts[3]
+		filePath := strings.Join(parts[4:], "/")
+		if !strings.EqualFold(path.Base(filePath), "SKILL.md") {
+			filePath = path.Join(filePath, "SKILL.md")
+		}
+		return "https://raw.githubusercontent.com/" + path.Join(owner, repo, ref, filePath), nil
+	default:
+		return "", errors.New("GitHub URL must be a blob file, raw file, or tree skill directory link")
+	}
+}
+
+func extractSkillsSHContent(body string) (string, error) {
+	if !looksLikeHTML(body) {
+		return strings.TrimSpace(body), nil
+	}
+	start := strings.Index(body, ">SKILL.md<")
+	if start == -1 {
+		start = strings.Index(body, "SKILL.md")
+	}
+	if start == -1 {
+		return "", errors.New("could not find SKILL.md content on skills.sh page")
+	}
+	section := body[start:]
+	if script := strings.Index(section, "<script"); script >= 0 {
+		section = section[:script]
+	}
+	text := htmlToMarkdownText(section)
+	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "SKILL.md"))
+	if text == "" {
+		return "", errors.New("could not extract SKILL.md content from skills.sh page")
+	}
+	return text, nil
+}
+
+func looksLikeHTML(value string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	return strings.HasPrefix(trimmed, "<!doctype html") || strings.HasPrefix(trimmed, "<html") || strings.Contains(trimmed, "<body")
+}
+
+func htmlToMarkdownText(value string) string {
+	replacements := []struct {
+		re   *regexp.Regexp
+		repl string
+	}{
+		{regexp.MustCompile(`(?i)<h1[^>]*>`), "\n# "},
+		{regexp.MustCompile(`(?i)</h1>`), "\n"},
+		{regexp.MustCompile(`(?i)<h2[^>]*>`), "\n## "},
+		{regexp.MustCompile(`(?i)</h2>`), "\n"},
+		{regexp.MustCompile(`(?i)<h3[^>]*>`), "\n### "},
+		{regexp.MustCompile(`(?i)</h3>`), "\n"},
+		{regexp.MustCompile(`(?i)<li[^>]*>`), "\n- "},
+		{regexp.MustCompile(`(?i)</li>`), "\n"},
+		{regexp.MustCompile(`(?i)<p[^>]*>`), "\n\n"},
+		{regexp.MustCompile(`(?i)</p>`), "\n"},
+		{regexp.MustCompile(`(?i)<br\s*/?>`), "\n"},
+		{regexp.MustCompile(`(?i)</?(pre|code)[^>]*>`), "\n"},
+	}
+	for _, replacement := range replacements {
+		value = replacement.re.ReplaceAllString(value, replacement.repl)
+	}
+	value = regexp.MustCompile(`(?s)<[^>]+>`).ReplaceAllString(value, "")
+	value = html.UnescapeString(value)
+	lines := strings.Split(value, "\n")
+	out := make([]string, 0, len(lines))
+	blank := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if !blank && len(out) > 0 {
+				out = append(out, "")
+			}
+			blank = true
+			continue
+		}
+		out = append(out, line)
+		blank = false
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func deriveSkillName(source, content string) string {
+	if match := regexp.MustCompile(`(?m)^#\s+(.+)$`).FindStringSubmatch(content); len(match) == 2 {
+		return strings.TrimSpace(match[1])
+	}
+	u, err := url.Parse(strings.TrimSpace(source))
+	if err == nil && u.Path != "" {
+		base := path.Base(strings.Trim(u.Path, "/"))
+		base = strings.TrimSuffix(base, path.Ext(base))
+		if strings.EqualFold(base, "SKILL") {
+			base = path.Base(path.Dir(strings.Trim(u.Path, "/")))
+		}
+		if base != "." && base != "/" && base != "" {
+			return strings.TrimSpace(base)
+		}
+	}
+	return "Imported skill"
 }
 
 func (a *app) broadcast() {

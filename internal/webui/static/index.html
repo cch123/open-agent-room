@@ -205,26 +205,32 @@
           </label>
           <button id="skill-attach" type="button">Attach</button>
         </div>
+        <div class="skill-mode-switch" role="group" aria-label="Skill create mode">
+          <button type="button" data-skill-mode="local" class="active">Local create</button>
+          <button type="button" data-skill-mode="cloud">Cloud import</button>
+        </div>
         <label>
-          Skill name
+          <span id="skill-name-label">Skill name</span>
           <input id="skill-name" autocomplete="off" placeholder="Review discipline" />
         </label>
         <label>
-          Source
-          <input id="skill-source" autocomplete="off" placeholder="https://.../SKILL.md, SKILL.md, or internal note" />
+          <span id="skill-source-label">Source note</span>
+          <input id="skill-source" autocomplete="off" placeholder="SKILL.md or internal note" />
         </label>
         <label>
           Tags
           <input id="skill-tags" autocomplete="off" placeholder="review, go, frontend" />
         </label>
-        <label>
-          Import file
-          <input id="skill-file" type="file" accept=".md,.txt,text/markdown,text/plain" />
-        </label>
-        <label>
-          Content
-          <textarea id="skill-content" rows="10" placeholder="Paste the skill instructions here."></textarea>
-        </label>
+        <div id="skill-local-fields" class="skill-local-fields">
+          <label>
+            Import file
+            <input id="skill-file" type="file" accept=".md,.txt,text/markdown,text/plain" />
+          </label>
+          <label>
+            Content
+            <textarea id="skill-content" rows="10" placeholder="Paste the skill instructions here."></textarea>
+          </label>
+        </div>
         <p id="skill-error" class="dialog-error" role="alert" aria-live="polite" hidden></p>
         <menu>
           <button value="cancel">Cancel</button>
