@@ -162,9 +162,16 @@
           <input id="agent-model-custom" autocomplete="off" placeholder="provider-model-name" />
         </label>
         <label>
-          Initial skills
+          Create new skills
           <textarea id="agent-skills" rows="6" placeholder="# Review discipline&#10;Lead with defects and cite concrete evidence.&#10;---&#10;# Go workflow&#10;Prefer small verified changes."></textarea>
         </label>
+        <div class="agent-skill-picker">
+          <div class="field-heading">
+            <span>Attach from Skill Center</span>
+            <small>Select reusable skills already in the workspace library.</small>
+          </div>
+          <div id="agent-skill-library" class="agent-skill-library"></div>
+        </div>
         <menu>
           <button value="cancel">Cancel</button>
           <button id="agent-create" value="default">Create</button>

@@ -233,7 +233,7 @@ func TestAddAgentStoresSystemPromptAndInitialSkills(t *testing.T) {
 	agent, err := st.AddAgent("Reviewer", "Reviews changes", "Only report concrete findings.", "codex", "default", []protocol.AgentSkill{
 		{Name: "Review Discipline", Source: "create-agent", Content: "Lead with defects."},
 		{Name: "Go Workflow", Source: "create-agent", Content: "Run go test ./..."},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,6 +247,28 @@ func TestAddAgentStoresSystemPromptAndInitialSkills(t *testing.T) {
 		if skill.ID == "" || skill.CreatedAt == "" {
 			t.Fatalf("skill was not normalized: %+v", skill)
 		}
+	}
+}
+
+func TestAddAgentAttachesExistingSkillIDs(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.", []string{"review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err := st.AddAgent("Reviewer", "Reviews changes", "", "codex", "", nil, []string{skill.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agent.Skills) != 1 || agent.Skills[0].ID != skill.ID {
+		t.Fatalf("agent skills = %+v, want attached %s", agent.Skills, skill.ID)
+	}
+	if len(st.Snapshot().Skills) != 1 {
+		t.Fatalf("existing skill should not be duplicated")
 	}
 }
 

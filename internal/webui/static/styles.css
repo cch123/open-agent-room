@@ -1317,6 +1317,78 @@ dialog::backdrop {
   gap: 10px;
 }
 
+.agent-skill-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.field-heading {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.field-heading span {
+  color: var(--muted);
+}
+
+.field-heading small {
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.agent-skill-library {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfd;
+}
+
+.agent-skill-choice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.agent-skill-choice:hover,
+.agent-skill-choice:focus-within {
+  background: #fff;
+  border-color: var(--line);
+}
+
+.agent-skill-choice input {
+  width: auto;
+  margin-top: 2px;
+}
+
+.agent-skill-choice span {
+  min-width: 0;
+}
+
+.agent-skill-choice strong,
+.agent-skill-choice small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-skill-choice small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 menu {
   display: flex;
   justify-content: flex-end;

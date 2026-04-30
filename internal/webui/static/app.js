@@ -81,6 +81,7 @@ const els = {
   agentModelCustom: document.querySelector("#agent-model-custom"),
   agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
   agentSkills: document.querySelector("#agent-skills"),
+  agentSkillLibrary: document.querySelector("#agent-skill-library"),
   userDialog: document.querySelector("#user-dialog"),
   userName: document.querySelector("#user-name"),
   skillDialog: document.querySelector("#skill-dialog"),
@@ -813,7 +814,7 @@ els.defaultAgent.addEventListener("change", async () => {
   }
 });
 
-document.querySelector("#new-agent").addEventListener("click", () => els.agentDialog.showModal());
+document.querySelector("#new-agent").addEventListener("click", openAgentDialog);
 document.querySelector("#new-user").addEventListener("click", () => els.userDialog.showModal());
 document.querySelector("#new-channel").addEventListener("click", () => els.channelDialog.showModal());
 els.openSkills.addEventListener("click", () => {
@@ -836,6 +837,11 @@ els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agent
 els.agentModel.addEventListener("change", updateCustomModelVisibility);
 els.markdownDialogClose.addEventListener("click", () => els.markdownDialog.close());
 
+function openAgentDialog() {
+  renderAgentSkillLibrary();
+  els.agentDialog.showModal();
+}
+
 document.querySelector("#agent-create").addEventListener("click", async (event) => {
   event.preventDefault();
   const name = els.agentName.value.trim();
@@ -845,14 +851,16 @@ document.querySelector("#agent-create").addEventListener("click", async (event) 
   const selectedModel = els.agentModel.value;
   const model = selectedModel === "__custom" ? els.agentModelCustom.value.trim() : selectedModel;
   const skills = parseInitialSkills(els.agentSkills.value);
+  const skillIds = selectedAgentSkillIDs();
   if (!name) return;
-  await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona, systemPrompt, runtime, model, skills }) });
+  await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona, systemPrompt, runtime, model, skills, skillIds }) });
   els.agentName.value = "";
   els.agentPersona.value = "";
   els.agentSystemPrompt.value = "";
   els.agentRuntime.value = "codex";
   els.agentModelCustom.value = "";
   els.agentSkills.value = "";
+  renderAgentSkillLibrary();
   populateModelOptions("codex");
   els.agentDialog.close();
 });
@@ -1030,6 +1038,33 @@ function renderSkillManager(skills, agents) {
     row.querySelector("[data-action='delete']").addEventListener("click", () => deleteGlobalSkill(skill));
     els.skillManagerList.append(row);
   }
+}
+
+function renderAgentSkillLibrary() {
+  const skills = state.snapshot?.skills || [];
+  els.agentSkillLibrary.innerHTML = "";
+  if (skills.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No Skill Center skills yet.";
+    els.agentSkillLibrary.append(empty);
+    return;
+  }
+  for (const skill of skills) {
+    const label = document.createElement("label");
+    label.className = "agent-skill-choice";
+    label.innerHTML = `
+      <input type="checkbox" value="${escapeHTML(skill.id)}" />
+      <span>
+        <strong>${escapeHTML(skill.name)}</strong>
+        <small>${escapeHTML(skill.source || "manual import")}${skill.tags?.length ? ` · ${skill.tags.map((tag) => `#${tag}`).join(" ")}` : ""}</small>
+      </span>`;
+    els.agentSkillLibrary.append(label);
+  }
+}
+
+function selectedAgentSkillIDs() {
+  return [...els.agentSkillLibrary.querySelectorAll("input[type='checkbox']:checked")].map((input) => input.value);
 }
 
 function renderSkillTagFilter(skills) {

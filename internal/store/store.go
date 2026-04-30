@@ -221,7 +221,7 @@ func (s *Store) DeleteChannel(id string) (protocol.Channel, error) {
 	return protocol.Channel{}, errors.New("channel not found")
 }
 
-func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string, skills []protocol.AgentSkill) (protocol.Agent, error) {
+func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string, skills []protocol.AgentSkill, existingSkillIDs []string) (protocol.Agent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	name = strings.TrimSpace(name)
@@ -231,6 +231,13 @@ func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string,
 	skillIDs, err := addSkillsLocked(&s.state, skills)
 	if err != nil {
 		return protocol.Agent{}, err
+	}
+	for _, skillID := range existingSkillIDs {
+		skill, ok := findSkill(s.state.Skills, skillID)
+		if !ok {
+			return protocol.Agent{}, errors.New("skill not found")
+		}
+		skillIDs = appendUnique(skillIDs, skill.ID)
 	}
 	agent := protocol.Agent{
 		ID:           "agent_" + slug(name),
