@@ -96,6 +96,7 @@ const els = {
   skillTags: document.querySelector("#skill-tags"),
   skillFile: document.querySelector("#skill-file"),
   skillContent: document.querySelector("#skill-content"),
+  skillError: document.querySelector("#skill-error"),
   channelDialog: document.querySelector("#channel-dialog"),
   markdownDialog: document.querySelector("#markdown-dialog"),
   markdownDialogTitle: document.querySelector("#markdown-dialog-title"),
@@ -877,21 +878,38 @@ document.querySelector("#user-create").addEventListener("click", async (event) =
 els.skillFile.addEventListener("change", async () => {
   const file = els.skillFile.files?.[0];
   if (!file) return;
-  els.skillSource.value = els.skillSource.value.trim() || file.name;
-  els.skillName.value = els.skillName.value.trim() || file.name.replace(/\.[^.]+$/, "");
-  els.skillContent.value = await file.text();
+  clearSkillError();
+  try {
+    els.skillSource.value = els.skillSource.value.trim() || file.name;
+    els.skillName.value = els.skillName.value.trim() || file.name.replace(/\.[^.]+$/, "");
+    els.skillContent.value = await file.text();
+  } catch (error) {
+    setSkillError(`Could not read skill file: ${error.message}`);
+  }
 });
 els.skillAttach.addEventListener("click", async () => {
   const agentId = state.skillAgentId;
   const skillId = els.skillAttachSelect.value;
-  if (!agentId || !skillId) return;
-  await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
-    method: "POST",
-    body: JSON.stringify({ skillId }),
-  });
-  state.snapshot = await api("/api/state");
-  render();
-  renderSkillDialog();
+  clearSkillError();
+  if (!agentId) {
+    setSkillError("Choose an agent before attaching a skill.");
+    return;
+  }
+  if (!skillId) {
+    setSkillError("No unattached Skill Center skill is selected.");
+    return;
+  }
+  try {
+    await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
+      method: "POST",
+      body: JSON.stringify({ skillId }),
+    });
+    state.snapshot = await api("/api/state");
+    render();
+    renderSkillDialog();
+  } catch (error) {
+    setSkillError(error.message);
+  }
 });
 
 document.querySelector("#skill-import").addEventListener("click", async (event) => {
@@ -900,25 +918,43 @@ document.querySelector("#skill-import").addEventListener("click", async (event) 
   const source = els.skillSource.value.trim();
   const content = els.skillContent.value.trim();
   const tags = parseSkillTags(els.skillTags.value);
-  if (!name || !content) return;
-  if (state.skillDialogMode === "global") {
-    await api("/api/skills", { method: "POST", body: JSON.stringify({ name, source, content, tags }) });
-  } else {
-    const agentId = state.skillAgentId;
-    if (!agentId) return;
-    await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
-      method: "POST",
-      body: JSON.stringify({ name, source, content, tags }),
-    });
+  clearSkillError();
+  if (!name) {
+    setSkillError("Skill name is required.");
+    els.skillName.focus();
+    return;
   }
-  state.snapshot = await api("/api/state");
-  render();
-  els.skillName.value = "";
-  els.skillSource.value = "";
-  els.skillTags.value = "";
-  els.skillFile.value = "";
-  els.skillContent.value = "";
-  renderSkillDialog();
+  if (!content) {
+    setSkillError("Add skill content by choosing a .md/.txt file or pasting instructions.");
+    els.skillContent.focus();
+    return;
+  }
+  try {
+    if (state.skillDialogMode === "global") {
+      await api("/api/skills", { method: "POST", body: JSON.stringify({ name, source, content, tags }) });
+    } else {
+      const agentId = state.skillAgentId;
+      if (!agentId) {
+        setSkillError("Choose an agent before importing a skill.");
+        return;
+      }
+      await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
+        method: "POST",
+        body: JSON.stringify({ name, source, content, tags }),
+      });
+    }
+    state.snapshot = await api("/api/state");
+    render();
+    els.skillName.value = "";
+    els.skillSource.value = "";
+    els.skillTags.value = "";
+    els.skillFile.value = "";
+    els.skillContent.value = "";
+    clearSkillError();
+    renderSkillDialog();
+  } catch (error) {
+    setSkillError(error.message);
+  }
 });
 
 document.querySelector("#channel-create").addEventListener("click", async (event) => {
@@ -967,6 +1003,7 @@ function openSkillDialog(agent) {
   els.skillTags.value = "";
   els.skillFile.value = "";
   els.skillContent.value = "";
+  clearSkillError();
   renderSkillDialog();
   els.skillDialog.showModal();
 }
@@ -979,8 +1016,19 @@ function openGlobalSkillDialog() {
   els.skillTags.value = "";
   els.skillFile.value = "";
   els.skillContent.value = "";
+  clearSkillError();
   renderSkillDialog();
   els.skillDialog.showModal();
+}
+
+function setSkillError(message) {
+  els.skillError.textContent = message;
+  els.skillError.hidden = false;
+}
+
+function clearSkillError() {
+  els.skillError.textContent = "";
+  els.skillError.hidden = true;
 }
 
 function renderSkillManager(skills, agents) {

@@ -1126,6 +1126,17 @@ dialog::backdrop {
   gap: 13px;
 }
 
+.dialog-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f2b8b5;
+  border-radius: 7px;
+  background: #fff4f2;
+  color: #9b1c1c;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .skill-dialog {
   width: min(560px, calc(100vw - 28px));
 }
