@@ -211,13 +211,17 @@ func (a *app) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	snapshot := a.store.Snapshot()
+	explicitAgentIDs := protocol.ExtractMentions(stored.Text, snapshot.Agents)
+	if len(explicitAgentIDs) > 0 {
+		a.assignTaskFromMention(ch.ID, explicitAgentIDs[0], env.ID)
+	}
 	a.broadcast()
 
 	if strings.HasPrefix(req.Text, "/assign ") {
 		a.activateAssignTarget(ch.ID, stored.Text)
 		go a.assignFromCommand(ch.ID, stored, env.ID)
 	} else {
-		snapshot := a.store.Snapshot()
 		agentIDs := a.resolveAgentRoutes(ch, stored.Text, snapshot.Agents)
 		go a.routeAgentMessages(ch, stored, agentIDs, env.ID)
 	}
@@ -494,15 +498,17 @@ func (a *app) handleTaskSubroutes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPatch:
 		var req struct {
-			Title       *string `json:"title"`
-			Description *string `json:"description"`
-			LaneID      *string `json:"laneId"`
+			Title        *string `json:"title"`
+			Description  *string `json:"description"`
+			LaneID       *string `json:"laneId"`
+			AssigneeKind *string `json:"assigneeKind"`
+			AssigneeID   *string `json:"assigneeId"`
 		}
 		if err := readJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		task, err := a.store.UpdateTask(taskPath, req.Title, req.Description, req.LaneID)
+		task, err := a.store.UpdateTask(taskPath, req.Title, req.Description, req.LaneID, req.AssigneeKind, req.AssigneeID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -854,6 +860,16 @@ func (a *app) resolveAgentRoutes(ch protocol.Channel, text string, agents []prot
 		}
 	}
 	return agentIDs
+}
+
+func (a *app) assignTaskFromMention(channelID, agentID, causationID string) {
+	task, changed, err := a.store.AssignTaskByChannel(channelID, "agent", agentID)
+	if err != nil || !changed {
+		return
+	}
+	payload := map[string]any{"task": task, "assigneeKind": "agent", "assigneeId": agentID, "source": "mention"}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task.assignee.changed", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "task", ID: task.ID}, payload, causationID)
+	_ = a.store.AddEnvelope(env)
 }
 
 func peerAgentsFor(agents []protocol.Agent, agentID string) []protocol.Agent {

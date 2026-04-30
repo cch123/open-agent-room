@@ -119,14 +119,16 @@ type TaskLane struct {
 }
 
 type Task struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
-	LaneID      string `json:"laneId"`
-	ChannelID   string `json:"channelId,omitempty"`
-	CreatedBy   string `json:"createdBy,omitempty"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Description  string `json:"description,omitempty"`
+	LaneID       string `json:"laneId"`
+	ChannelID    string `json:"channelId,omitempty"`
+	AssigneeKind string `json:"assigneeKind,omitempty"`
+	AssigneeID   string `json:"assigneeId,omitempty"`
+	CreatedBy    string `json:"createdBy,omitempty"`
+	CreatedAt    string `json:"createdAt"`
+	UpdatedAt    string `json:"updatedAt"`
 }
 
 type State struct {

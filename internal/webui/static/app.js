@@ -182,7 +182,7 @@ function render() {
   els.roomEyebrow.textContent = isManagementView ? "Management" : currentTask ? "Task Channel" : "Channel";
   els.roomName.textContent = isTaskView ? "Tasks" : isSkillView ? "Skill Center" : current ? `#${current.name}` : "#channel";
   els.defaultAgentControl.hidden = isManagementView;
-  renderTaskChannelContext(currentTask, currentTaskLane, isManagementView);
+  renderTaskChannelContext(currentTask, currentTaskLane, users, agents, isManagementView);
   els.messages.hidden = isManagementView;
   els.composer.hidden = isManagementView;
   els.skillManager.hidden = !isSkillView;
@@ -198,7 +198,7 @@ function render() {
   if (isSkillView) {
     renderSkillManager(state.snapshot.skills || [], agents);
   } else if (isTaskView) {
-    renderTaskManager(taskLanes, tasks, channels);
+    renderTaskManager(taskLanes, tasks, channels, users, agents);
   } else {
     renderMessages();
     renderMentions(availableMentionAgents(current, agents));
@@ -352,7 +352,7 @@ function renderMessages() {
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
-function renderTaskChannelContext(task, lane, isManagementView) {
+function renderTaskChannelContext(task, lane, users, agents, isManagementView) {
   if (isManagementView || !task) {
     els.taskContext.hidden = true;
     els.taskContext.innerHTML = "";
@@ -365,6 +365,7 @@ function renderTaskChannelContext(task, lane, isManagementView) {
     <div class="task-context-main">
       <div class="task-context-meta">
         <span>${escapeHTML(lane?.name || "Unplanned")}</span>
+        <span>${escapeHTML(taskAssigneeLabel(task, users, agents))}</span>
         <span>Updated ${escapeHTML(formatTaskTime(updated))}</span>
         <span>${task.channelId ? "Discussion channel" : "No channel"}</span>
       </div>
@@ -1315,6 +1316,19 @@ async function moveTaskToLane(taskId, laneId) {
   }
 }
 
+async function updateTaskAssignee(taskId, value) {
+  if (!taskId) return;
+  const [assigneeKind = "", assigneeId = ""] = (value || "").split(":", 2);
+  try {
+    await api(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ assigneeKind, assigneeId }),
+    });
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 async function openTaskChannel(task) {
   try {
     const result = await api(`/api/tasks/${encodeURIComponent(task.id)}/channel`, { method: "POST" });
@@ -1480,7 +1494,7 @@ function renderSkillManager(skills, agents) {
   }
 }
 
-function renderTaskManager(lanes, tasks, channels) {
+function renderTaskManager(lanes, tasks, channels, users, agents) {
   const orderedLanes = sortedTaskLanes(lanes);
   els.taskManagerCount.textContent = `${tasks.length} task${tasks.length === 1 ? "" : "s"}`;
   els.taskBoard.innerHTML = "";
@@ -1547,8 +1561,13 @@ function renderTaskManager(lanes, tasks, channels) {
         </div>
         <div class="task-card-meta">
           <span>${escapeHTML(formatTaskTime(task.updatedAt || task.createdAt))}</span>
+          <span>${escapeHTML(taskAssigneeLabel(task, users, agents))}</span>
           ${channel ? `<span>#${escapeHTML(channel.name)}</span>` : "<span>No channel</span>"}
         </div>
+        <label class="task-owner-field">
+          <span>Owner</span>
+          <select class="task-owner-select" aria-label="Assign owner for ${escapeHTML(task.title)}">${taskAssigneeOptionsHTML(users, agents, task)}</select>
+        </label>
         <div class="task-card-controls">
           <select class="task-status-select" aria-label="Move task ${escapeHTML(task.title)}">${taskLaneOptionsHTML(orderedLanes, task.laneId)}</select>
           <button type="button" class="item-action visible" data-action="discuss">${channel ? "Open" : "Discuss"}</button>
@@ -1566,6 +1585,9 @@ function renderTaskManager(lanes, tasks, channels) {
       });
       card.querySelector(".task-status-select").addEventListener("change", (event) => {
         void moveTaskToLane(task.id, event.target.value);
+      });
+      card.querySelector(".task-owner-select").addEventListener("change", (event) => {
+        void updateTaskAssignee(task.id, event.target.value);
       });
       card.querySelector("[data-action='discuss']").addEventListener("click", () => openTaskChannel(task));
       card.querySelector("[data-action='delete-task']").addEventListener("click", () => deleteTask(task));
@@ -1585,6 +1607,34 @@ function taskLaneOptionsHTML(lanes, selectedID) {
   return lanes
     .map((lane) => `<option value="${escapeHTML(lane.id)}" ${lane.id === selectedID ? "selected" : ""}>${escapeHTML(lane.name)}</option>`)
     .join("");
+}
+
+function taskAssigneeOptionsHTML(users, agents, task) {
+  const selected = task.assigneeKind && task.assigneeId ? `${task.assigneeKind}:${task.assigneeId}` : "";
+  const humanOptions = (users || [])
+    .map((user) => taskAssigneeOptionHTML(`human:${user.id}`, user.name, selected))
+    .join("");
+  const agentOptions = (agents || [])
+    .map((agent) => taskAssigneeOptionHTML(`agent:${agent.id}`, `${agent.name} · ${runtimeLabel(agent)}`, selected))
+    .join("");
+  return `
+    <option value="" ${selected ? "" : "selected"}>Unassigned</option>
+    ${humanOptions ? `<optgroup label="Humans">${humanOptions}</optgroup>` : ""}
+    ${agentOptions ? `<optgroup label="Agents">${agentOptions}</optgroup>` : ""}`;
+}
+
+function taskAssigneeOptionHTML(value, label, selected) {
+  return `<option value="${escapeHTML(value)}" ${value === selected ? "selected" : ""}>${escapeHTML(label)}</option>`;
+}
+
+function taskAssigneeLabel(task, users, agents) {
+  if (!task?.assigneeKind || !task?.assigneeId) return "Unassigned";
+  if (task.assigneeKind === "agent") {
+    const agent = (agents || []).find((candidate) => candidate.id === task.assigneeId);
+    return agent ? `Owner: ${agent.name}` : "Owner: missing agent";
+  }
+  const user = (users || []).find((candidate) => candidate.id === task.assigneeId);
+  return user ? `Owner: ${user.name}` : "Owner: missing human";
 }
 
 function taskForChannel(channel, tasks = state.snapshot?.tasks || []) {

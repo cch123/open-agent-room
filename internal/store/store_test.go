@@ -286,7 +286,7 @@ func TestTasksCanMoveAndOpenDiscussionChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	doing := "lane_doing"
-	updated, err := st.UpdateTask(task.ID, nil, nil, &doing)
+	updated, err := st.UpdateTask(task.ID, nil, nil, &doing, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,6 +314,45 @@ func TestTasksCanMoveAndOpenDiscussionChannel(t *testing.T) {
 	}
 	if again.ChannelID != linked.ChannelID || same.ID != ch.ID {
 		t.Fatalf("task channel was not reused: task=%s channel=%s", again.ChannelID, same.ID)
+	}
+}
+
+func TestTasksCanBeAssignedToParticipants(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := st.AddAgent("Owner", "Owns tasks", "", "codex", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.AddTask("Ship task owners", "", "lane_todo", "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kind, id := "agent", agent.ID
+	updated, err := st.UpdateTask(task.ID, nil, nil, nil, &kind, &id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.AssigneeKind != "agent" || updated.AssigneeID != agent.ID {
+		t.Fatalf("assignee = %s/%s, want agent/%s", updated.AssigneeKind, updated.AssigneeID, agent.ID)
+	}
+
+	linked, ch, _, err := st.CreateTaskChannel(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assigned, changed, err := st.AssignTaskByChannel(ch.ID, "human", "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected channel assignment to change task owner")
+	}
+	if assigned.ID != linked.ID || assigned.AssigneeKind != "human" || assigned.AssigneeID != "usr_you" {
+		t.Fatalf("assigned task = %+v", assigned)
 	}
 }
 

@@ -1178,6 +1178,23 @@ h2 {
   white-space: nowrap;
 }
 
+.task-owner-field {
+  display: grid;
+  gap: 5px;
+}
+
+.task-owner-field span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.task-owner-select {
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
 .task-card-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 64px 28px;

@@ -192,6 +192,13 @@ func (s *Store) DeleteUser(id string) (protocol.User, error) {
 		for j := range s.state.Channels {
 			s.state.Channels[j].MemberIDs = removeValue(s.state.Channels[j].MemberIDs, user.ID)
 		}
+		for j := range s.state.Tasks {
+			if (s.state.Tasks[j].AssigneeKind == "human" || s.state.Tasks[j].AssigneeKind == "user") && s.state.Tasks[j].AssigneeID == user.ID {
+				s.state.Tasks[j].AssigneeKind = ""
+				s.state.Tasks[j].AssigneeID = ""
+				s.state.Tasks[j].UpdatedAt = protocol.Now()
+			}
+		}
 		s.touchLocked()
 		return user, s.saveLocked()
 	}
@@ -304,7 +311,7 @@ func (s *Store) AddTask(title, description, laneID, createdBy string) (protocol.
 	return task, s.saveLocked()
 }
 
-func (s *Store) UpdateTask(id string, title, description, laneID *string) (protocol.Task, error) {
+func (s *Store) UpdateTask(id string, title, description, laneID, assigneeKind, assigneeID *string) (protocol.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id = strings.TrimSpace(id)
@@ -329,11 +336,51 @@ func (s *Store) UpdateTask(id string, title, description, laneID *string) (proto
 			}
 			s.state.Tasks[i].LaneID = next
 		}
+		if assigneeKind != nil || assigneeID != nil {
+			nextKind := s.state.Tasks[i].AssigneeKind
+			nextID := s.state.Tasks[i].AssigneeID
+			if assigneeKind != nil {
+				nextKind = *assigneeKind
+			}
+			if assigneeID != nil {
+				nextID = *assigneeID
+			}
+			normalizedKind, normalizedID, err := s.normalizeTaskAssigneeLocked(nextKind, nextID)
+			if err != nil {
+				return protocol.Task{}, err
+			}
+			s.state.Tasks[i].AssigneeKind = normalizedKind
+			s.state.Tasks[i].AssigneeID = normalizedID
+		}
 		s.state.Tasks[i].UpdatedAt = protocol.Now()
 		s.touchLocked()
 		return s.state.Tasks[i], s.saveLocked()
 	}
 	return protocol.Task{}, errors.New("task not found")
+}
+
+func (s *Store) AssignTaskByChannel(channelID, kind, assigneeID string) (protocol.Task, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	channelID = strings.TrimSpace(channelID)
+	normalizedKind, normalizedID, err := s.normalizeTaskAssigneeLocked(kind, assigneeID)
+	if err != nil {
+		return protocol.Task{}, false, err
+	}
+	for i := range s.state.Tasks {
+		if s.state.Tasks[i].ChannelID != channelID {
+			continue
+		}
+		if s.state.Tasks[i].AssigneeKind == normalizedKind && s.state.Tasks[i].AssigneeID == normalizedID {
+			return s.state.Tasks[i], false, nil
+		}
+		s.state.Tasks[i].AssigneeKind = normalizedKind
+		s.state.Tasks[i].AssigneeID = normalizedID
+		s.state.Tasks[i].UpdatedAt = protocol.Now()
+		s.touchLocked()
+		return s.state.Tasks[i], true, s.saveLocked()
+	}
+	return protocol.Task{}, false, nil
 }
 
 func (s *Store) DeleteTask(id string) (protocol.Task, error) {
@@ -448,6 +495,13 @@ func (s *Store) DeleteAgent(id string) (protocol.Agent, error) {
 				if s.state.Channels[j].DefaultAgentID != "" {
 					s.state.Channels[j].MemberIDs = appendUnique(s.state.Channels[j].MemberIDs, s.state.Channels[j].DefaultAgentID)
 				}
+			}
+		}
+		for j := range s.state.Tasks {
+			if s.state.Tasks[j].AssigneeKind == "agent" && s.state.Tasks[j].AssigneeID == agent.ID {
+				s.state.Tasks[j].AssigneeKind = ""
+				s.state.Tasks[j].AssigneeID = ""
+				s.state.Tasks[j].UpdatedAt = protocol.Now()
 			}
 		}
 		s.touchLocked()
@@ -827,6 +881,62 @@ func userMatches(user protocol.User, id string) bool {
 	return strings.ToLower(user.ID) == id || strings.ToLower(user.Name) == id || strings.TrimPrefix(strings.ToLower(user.ID), "usr_") == id
 }
 
+func (s *Store) normalizeTaskAssigneeLocked(kind, id string) (string, string, error) {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	id = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "@"))
+	if id == "" {
+		return "", "", nil
+	}
+	if kind == "user" {
+		kind = "human"
+	}
+	if kind == "" {
+		if _, ok := s.findAgentLocked(id); ok {
+			return "agent", id, nil
+		}
+		if _, ok := s.findUserLocked(id); ok {
+			return "human", id, nil
+		}
+		return "", "", errors.New("assignee not found")
+	}
+	switch kind {
+	case "agent":
+		agent, ok := s.findAgentLocked(id)
+		if !ok {
+			return "", "", errors.New("agent not found")
+		}
+		return "agent", agent.ID, nil
+	case "human":
+		user, ok := s.findUserLocked(id)
+		if !ok {
+			return "", "", errors.New("human not found")
+		}
+		return "human", user.ID, nil
+	default:
+		return "", "", errors.New("assignee kind must be agent or human")
+	}
+}
+
+func (s *Store) findAgentLocked(id string) (protocol.Agent, bool) {
+	id = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "@"))
+	for _, agent := range s.state.Agents {
+		if agentMatches(agent, id) {
+			return agent, true
+		}
+	}
+	return protocol.Agent{}, false
+}
+
+func (s *Store) findUserLocked(id string) (protocol.User, bool) {
+	id = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "@"))
+	for _, user := range s.state.Users {
+		if userMatches(user, id) {
+			return user, true
+		}
+	}
+	return protocol.User{}, false
+}
+
 func skillMatches(skill protocol.AgentSkill, id string) bool {
 	return strings.ToLower(skill.ID) == id || strings.ToLower(skill.Name) == id || strings.TrimPrefix(strings.ToLower(skill.ID), "skill_") == id
 }
@@ -1130,6 +1240,12 @@ func (s *Store) ensureTaskDefaultsLocked() {
 		if s.state.Tasks[i].UpdatedAt == "" {
 			s.state.Tasks[i].UpdatedAt = s.state.Tasks[i].CreatedAt
 		}
+		kind, id, err := s.normalizeTaskAssigneeLocked(s.state.Tasks[i].AssigneeKind, s.state.Tasks[i].AssigneeID)
+		if err != nil {
+			kind, id = "", ""
+		}
+		s.state.Tasks[i].AssigneeKind = kind
+		s.state.Tasks[i].AssigneeID = id
 	}
 }
 
