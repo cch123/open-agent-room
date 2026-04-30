@@ -857,7 +857,7 @@ function activeMentionToken() {
 
 function mentionSuggestionHTML(agent, selected) {
   return `
-    <button type="button" class="mention-suggestion ${selected ? "active" : ""}" data-agent-id="${escapeHTML(agent.id)}" data-profile-kind="agent" data-profile-id="${escapeHTML(agent.id)}" data-profile-name="${escapeHTML(agent.name)}">
+    <button type="button" class="mention-suggestion ${selected ? "active" : ""}" data-agent-id="${escapeHTML(agent.id)}">
       <span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span>
       <span>
         <strong>@${escapeHTML(agent.name)}</strong>
