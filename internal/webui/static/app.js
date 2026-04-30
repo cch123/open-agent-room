@@ -25,6 +25,8 @@ const state = {
   taskDrawerTaskId: "",
   taskDrawerChannelId: "",
   taskDrawerDraft: "",
+  agentStatusById: {},
+  editingAgentId: "",
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
@@ -112,6 +114,7 @@ const els = {
   eventDetail: document.querySelector("#event-detail"),
   eventCount: document.querySelector("#event-count"),
   agentDialog: document.querySelector("#agent-dialog"),
+  agentDialogTitle: document.querySelector("#agent-dialog-title"),
   agentName: document.querySelector("#agent-name"),
   agentPersona: document.querySelector("#agent-persona"),
   agentSystemPrompt: document.querySelector("#agent-system-prompt"),
@@ -120,7 +123,10 @@ const els = {
   agentModelCustom: document.querySelector("#agent-model-custom"),
   agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
   agentSkills: document.querySelector("#agent-skills"),
+  agentSkillsRow: document.querySelector("#agent-skills-row"),
+  agentSkillPicker: document.querySelector("#agent-skill-picker"),
   agentSkillLibrary: document.querySelector("#agent-skill-library"),
+  agentSubmit: document.querySelector("#agent-create"),
   taskDialog: document.querySelector("#task-dialog"),
   taskDialogTitle: document.querySelector("#task-dialog-title"),
   taskSubmit: document.querySelector("#task-create"),
@@ -300,11 +306,18 @@ function renderUsers(users) {
 
 function renderAgents(agents) {
   els.agentList.innerHTML = "";
+  const nextAgentStatusById = {};
   for (const agent of agents) {
     const row = document.createElement("div");
     row.className = "agent-row";
     const button = document.createElement("button");
     button.className = "agent-item";
+    const status = normalizeAgentStatus(agent.status);
+    const previousStatus = state.agentStatusById[agent.id];
+    nextAgentStatusById[agent.id] = status;
+    if (previousStatus && previousStatus !== status) {
+      button.classList.add("status-changed");
+    }
     const skillCount = (agent.skills || []).length;
     const skillMeta = ` · ${skillCount} skill${skillCount === 1 ? "" : "s"}`;
     const promptMeta = agent.systemPrompt ? " · system prompt" : "";
@@ -313,7 +326,8 @@ function renderAgents(agents) {
     button.dataset.profileKind = "agent";
     button.dataset.profileId = agent.id;
     button.dataset.profileName = agent.name;
-    button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
+    button.dataset.agentStatus = status;
+    button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span class="agent-copy"><span class="agent-name-line"><strong>${escapeHTML(agent.name)}</strong>${agentStatusIndicator(status)}</span><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
       insertMention(agent.name);
     });
@@ -324,6 +338,13 @@ function renderAgents(agents) {
     skillButton.setAttribute("aria-label", `Import skill into ${agent.name}`);
     skillButton.textContent = "Skill";
     skillButton.addEventListener("click", () => openSkillDialog(agent));
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "item-action";
+    editButton.title = `Edit ${agent.name}`;
+    editButton.setAttribute("aria-label", `Edit agent ${agent.name}`);
+    editButton.textContent = "Edit";
+    editButton.addEventListener("click", () => openAgentDialog(agent));
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "item-delete";
@@ -331,9 +352,23 @@ function renderAgents(agents) {
     deleteButton.setAttribute("aria-label", `Delete agent ${agent.name}`);
     deleteButton.textContent = "x";
     deleteButton.addEventListener("click", () => deleteAgent(agent));
-    row.append(button, skillButton, deleteButton);
+    row.append(button, editButton, skillButton, deleteButton);
     els.agentList.append(row);
   }
+  state.agentStatusById = nextAgentStatusById;
+}
+
+function normalizeAgentStatus(status = "") {
+  const normalized = status.toLowerCase().trim();
+  if (["thinking", "starting", "idle", "waiting", "offline"].includes(normalized)) {
+    return normalized;
+  }
+  return normalized || "idle";
+}
+
+function agentStatusIndicator(status) {
+  const label = status || "idle";
+  return `<span class="agent-status-indicator" data-status="${escapeHTML(label)}" title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}"></span>`;
 }
 
 function renderMessages() {
@@ -1205,7 +1240,7 @@ els.defaultAgent.addEventListener("change", async () => {
   }
 });
 
-document.querySelector("#new-agent").addEventListener("click", openAgentDialog);
+document.querySelector("#new-agent").addEventListener("click", () => openAgentDialog());
 document.querySelector("#new-user").addEventListener("click", () => els.userDialog.showModal());
 document.querySelector("#new-channel").addEventListener("click", () => els.channelDialog.showModal());
 els.openTasks.addEventListener("click", () => {
@@ -1244,11 +1279,25 @@ els.skillTagFilter.addEventListener("change", () => {
 els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
 els.agentModel.addEventListener("change", updateCustomModelVisibility);
 els.agentName.addEventListener("input", sanitizeAgentNameField);
+els.agentDialog.addEventListener("close", resetAgentDialog);
 els.markdownDialogClose.addEventListener("click", () => els.markdownDialog.close());
 
-function openAgentDialog() {
-  renderAgentSkillLibrary();
+function openAgentDialog(agent = null) {
+  const editing = Boolean(agent);
+  state.editingAgentId = editing ? agent.id : "";
+  els.agentDialogTitle.textContent = editing ? "Edit Agent" : "Create Agent";
+  els.agentSubmit.textContent = editing ? "Save" : "Create";
+  els.agentName.value = agent?.name || "";
+  els.agentPersona.value = agent?.persona || "";
+  els.agentSystemPrompt.value = agent?.systemPrompt || "";
+  els.agentRuntime.value = agent?.runtime || "codex";
+  setAgentModelValue(els.agentRuntime.value, agent?.model || "");
+  els.agentSkills.value = "";
+  els.agentSkillsRow.hidden = editing;
+  els.agentSkillPicker.hidden = editing;
+  if (!editing) renderAgentSkillLibrary();
   els.agentDialog.showModal();
+  els.agentName.focus();
 }
 
 document.querySelector("#agent-create").addEventListener("click", async (event) => {
@@ -1263,16 +1312,20 @@ document.querySelector("#agent-create").addEventListener("click", async (event) 
   const skills = parseInitialSkills(els.agentSkills.value);
   const skillIds = selectedAgentSkillIDs();
   if (!name) return;
-  await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona, systemPrompt, runtime, model, skills, skillIds }) });
-  els.agentName.value = "";
-  els.agentPersona.value = "";
-  els.agentSystemPrompt.value = "";
-  els.agentRuntime.value = "codex";
-  els.agentModelCustom.value = "";
-  els.agentSkills.value = "";
-  renderAgentSkillLibrary();
-  populateModelOptions("codex");
-  els.agentDialog.close();
+  try {
+    if (state.editingAgentId) {
+      await api(`/api/agents/${encodeURIComponent(state.editingAgentId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name, persona, systemPrompt, runtime, model }),
+      });
+    } else {
+      await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona, systemPrompt, runtime, model, skills, skillIds }) });
+    }
+    resetAgentDialog();
+    els.agentDialog.close();
+  } catch (error) {
+    alert(error.message);
+  }
 });
 
 document.querySelector("#user-create").addEventListener("click", async (event) => {
@@ -2322,6 +2375,35 @@ function populateModelOptions(runtime) {
     els.agentModel.append(option);
   }
   updateCustomModelVisibility();
+}
+
+function setAgentModelValue(runtime, model = "") {
+  populateModelOptions(runtime);
+  const hasOption = [...els.agentModel.options].some((option) => option.value === model);
+  if (hasOption) {
+    els.agentModel.value = model;
+    els.agentModelCustom.value = "";
+  } else {
+    els.agentModel.value = "__custom";
+    els.agentModelCustom.value = model;
+  }
+  updateCustomModelVisibility();
+}
+
+function resetAgentDialog() {
+  state.editingAgentId = "";
+  els.agentDialogTitle.textContent = "Create Agent";
+  els.agentSubmit.textContent = "Create";
+  els.agentName.value = "";
+  els.agentPersona.value = "";
+  els.agentSystemPrompt.value = "";
+  els.agentRuntime.value = "codex";
+  els.agentModelCustom.value = "";
+  els.agentSkills.value = "";
+  els.agentSkillsRow.hidden = false;
+  els.agentSkillPicker.hidden = false;
+  renderAgentSkillLibrary();
+  populateModelOptions("codex");
 }
 
 function parseInitialSkills(text = "") {

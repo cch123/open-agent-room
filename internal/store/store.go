@@ -516,6 +516,9 @@ func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string,
 	if normalizeAgentName(name) != name {
 		return protocol.Agent{}, errors.New("agent name cannot contain spaces")
 	}
+	if s.agentNameExistsLocked(name, "") {
+		return protocol.Agent{}, errors.New("agent name already exists")
+	}
 	skillIDs, err := addSkillsLocked(&s.state, skills)
 	if err != nil {
 		return protocol.Agent{}, err
@@ -558,6 +561,48 @@ func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string,
 	}
 	s.touchLocked()
 	return hydrateAgentSkill(agent, s.state.Skills), s.saveLocked()
+}
+
+func (s *Store) UpdateAgent(id string, name, persona, systemPrompt, runtimeName, model *string) (protocol.Agent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "@"))
+	for i := range s.state.Agents {
+		if !agentMatches(s.state.Agents[i], id) {
+			continue
+		}
+		if name != nil {
+			next := strings.TrimSpace(*name)
+			if next == "" {
+				return protocol.Agent{}, errors.New("agent name is required")
+			}
+			if normalizeAgentName(next) != next {
+				return protocol.Agent{}, errors.New("agent name cannot contain spaces")
+			}
+			if s.agentNameExistsLocked(next, s.state.Agents[i].ID) {
+				return protocol.Agent{}, errors.New("agent name already exists")
+			}
+			s.state.Agents[i].Name = next
+		}
+		if persona != nil {
+			s.state.Agents[i].Persona = strings.TrimSpace(*persona)
+			if s.state.Agents[i].Persona == "" {
+				s.state.Agents[i].Persona = "General collaboration agent"
+			}
+		}
+		if systemPrompt != nil {
+			s.state.Agents[i].SystemPrompt = strings.TrimSpace(*systemPrompt)
+		}
+		if runtimeName != nil {
+			s.state.Agents[i].Runtime = normalizeRuntime(*runtimeName)
+		}
+		if model != nil {
+			s.state.Agents[i].Model = strings.TrimSpace(*model)
+		}
+		s.touchLocked()
+		return hydrateAgentSkill(s.state.Agents[i], s.state.Skills), s.saveLocked()
+	}
+	return protocol.Agent{}, errors.New("agent not found")
 }
 
 func (s *Store) DeleteAgent(id string) (protocol.Agent, error) {
@@ -1291,6 +1336,18 @@ func (s *Store) ensureAgentRuntimeDefaultsLocked() {
 
 func normalizeAgentName(value string) string {
 	return strings.Join(strings.Fields(value), "")
+}
+
+func (s *Store) agentNameExistsLocked(name, exceptID string) bool {
+	for _, agent := range s.state.Agents {
+		if agent.ID == exceptID {
+			continue
+		}
+		if strings.EqualFold(agent.Name, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) ensureSkillLibraryLocked() {

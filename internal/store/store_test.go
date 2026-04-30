@@ -70,6 +70,39 @@ func TestAddAgentRejectsSpaces(t *testing.T) {
 	}
 }
 
+func TestUpdateAgentEditsProfileAndRejectsSpaces(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := "Architect"
+	persona := "Reviews architecture decisions."
+	systemPrompt := "Be concise."
+	runtimeName := "claude"
+	model := "sonnet"
+	agent, err := st.UpdateAgent("agent_ada", &name, &persona, &systemPrompt, &runtimeName, &model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.ID != "agent_ada" {
+		t.Fatalf("updated agent id = %q, want stable agent_ada", agent.ID)
+	}
+	if agent.Name != "Architect" || agent.Persona != persona || agent.SystemPrompt != systemPrompt || agent.Runtime != "claude" || agent.Model != "sonnet" {
+		t.Fatalf("updated agent = %+v", agent)
+	}
+
+	badName := "Bad Name"
+	if _, err := st.UpdateAgent("agent_ada", &badName, nil, nil, nil, nil); err == nil {
+		t.Fatal("expected spaced agent name to fail")
+	}
+
+	duplicate := "Lin"
+	if _, err := st.UpdateAgent("agent_ada", &duplicate, nil, nil, nil, nil); err == nil {
+		t.Fatal("expected duplicate agent name to fail")
+	}
+}
+
 func TestLoadNormalizesExistingAgentNames(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	state := protocol.State{
