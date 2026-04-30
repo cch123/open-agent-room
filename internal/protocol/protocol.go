@@ -167,6 +167,22 @@ type AgentMessagePayload struct {
 	ThreadDepth int       `json:"threadDepth,omitempty"`
 }
 
+type RouteArbitrationPayload struct {
+	Channel        Channel   `json:"channel"`
+	Message        Message   `json:"message"`
+	Recent         []Message `json:"recent,omitempty"`
+	Agents         []Agent   `json:"agents"`
+	ActiveAgentID  string    `json:"activeAgentId,omitempty"`
+	DefaultAgentID string    `json:"defaultAgentId,omitempty"`
+}
+
+type RouteDecisionPayload struct {
+	ChannelID string   `json:"channelId"`
+	MessageID string   `json:"messageId"`
+	AgentIDs  []string `json:"agentIds,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+}
+
 type TaskAssignedPayload struct {
 	Agent     Agent  `json:"agent"`
 	ChannelID string `json:"channelId"`

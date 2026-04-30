@@ -177,7 +177,7 @@
             <span id="daemon-count">0 online</span>
           </div>
           <code class="command">go run ./cmd/daemon</code>
-          <p class="muted">The daemon receives `agent.message`, `task.assigned`, `task.updated`, and `task.revoked`, then routes or cancels work for each agent's Codex, Claude, or demo runtime.</p>
+          <p class="muted">The daemon receives hidden `route.arbitrate` requests plus `agent.message`, `task.assigned`, `task.updated`, and `task.revoked`, then routes or cancels work for each agent's Codex, Claude, or demo runtime.</p>
         </section>
 
         <section class="panel assign-panel">

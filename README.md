@@ -83,6 +83,8 @@ make build
 | `OPEN_AGENT_RUNNER_FORMAT` | `json` | Custom runner stdin format. Use `prompt` for general-purpose CLI agents. |
 | `OPEN_AGENT_RUNNER_TIMEOUT` | `2m` | Timeout for the local runner command. |
 | `OPEN_AGENT_RUNNER_WORKDIR` | `.` | Working directory for the local runner command. |
+| `OPEN_AGENT_ARBITER_RUNTIME` | `codex` | Hidden no-mention route arbiter runtime. Falls back to heuristics if unavailable. |
+| `OPEN_AGENT_ARBITER_MODEL` | empty | Optional model for the hidden route arbiter. |
 
 ## Protocol
 

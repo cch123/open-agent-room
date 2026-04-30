@@ -64,6 +64,8 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 | `agent.deleted` | Server | Record that an agent was removed from the workspace roster. |
 | `channel.deleted` | Server | Record that a channel and its messages were removed. |
 | `message.created` | Any to server | Append a visible message in a channel or DM. |
+| `route.arbitrate` | Server to daemon | Hidden channel arbiter request for a no-mention human message. |
+| `route.decision` | Daemon to server | Hidden arbiter decision listing the agents that should receive the message. |
 | `agent.message` | Server to daemon | Route a human/channel message to an agent. |
 | `task.assigned` | Server to daemon | Ask an agent to take ownership of a task. |
 | `agent.reply` | Daemon to server | Append a visible agent response. |
@@ -75,10 +77,10 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 
 1. Human messages are persisted first, then routed.
 2. A message routes to agents whose display name or id appears as `@Name` or `@agent_id`.
-3. When a channel message mentions exactly one agent, that agent becomes the active agent for follow-up messages in the same channel.
-4. A later human message in that channel with no `@` mention routes to the active agent.
-5. If a channel has no active agent and the message has no `@`, it routes to the channel's configured `defaultAgentId`.
-6. If `defaultAgentId` is not set, routing falls back to the first agent in that channel's member list.
+3. When a channel message mentions exactly one agent, that agent becomes the active agent hint for follow-up messages in the same channel.
+4. A later human message in that channel with no `@` mention is not routed directly. The server sends hidden `route.arbitrate` to the daemon with recent context, channel agents, the active agent hint, and the channel default hint.
+5. The hidden arbiter uses a local LLM to return `route.decision` with zero, one, or at most two agent ids. Zero agents means no reply is needed.
+6. If no daemon or arbiter runtime is available, the server/daemon falls back to conservative heuristics: short acknowledgements route to nobody, otherwise active/default/first-agent hints are used.
 7. New channels include the registered humans and current agents as members, then default to the workspace's first agent.
 8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants.
 9. Agent-to-agent replies use `threadStatus` to prevent low-value ping-pong: `continue` can request another peer turn, while `standby`, `handoff`, and `final` stop automatic peer routing.

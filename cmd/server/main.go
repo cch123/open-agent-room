@@ -225,7 +225,11 @@ func (a *app) handleMessages(w http.ResponseWriter, r *http.Request) {
 		go a.assignFromCommand(ch.ID, stored, env.ID)
 	} else {
 		agentIDs := a.resolveAgentRoutes(ch, stored.Text, snapshot.Agents)
-		go a.routeAgentMessages(ch, stored, agentIDs, env.ID)
+		if len(agentIDs) > 0 || strings.Contains(stored.Text, "@") {
+			go a.routeAgentMessages(ch, stored, agentIDs, env.ID)
+		} else {
+			go a.arbitrateMessageRoute(ch, stored, snapshot, env.ID)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, stored)
@@ -918,15 +922,129 @@ func (a *app) resolveAgentRoutes(ch protocol.Channel, text string, agents []prot
 		a.setActiveAgent(ch.ID, agentIDs[0])
 	} else if len(agentIDs) > 1 {
 		a.clearActiveChannel(ch.ID)
-	} else if len(agentIDs) == 0 && !strings.Contains(text, "@") {
-		if agentID, ok := a.activeAgent(ch.ID); ok {
-			agentIDs = []string{agentID}
-		} else if agentID, ok := defaultAgentForChannel(ch, agents); ok {
-			agentIDs = []string{agentID}
-			a.setActiveAgent(ch.ID, agentID)
-		}
 	}
 	return agentIDs
+}
+
+func (a *app) arbitrateMessageRoute(ch protocol.Channel, msg protocol.Message, snapshot protocol.State, causationID string) {
+	agents := agentsForChannel(ch, snapshot.Agents)
+	if len(agents) == 0 {
+		return
+	}
+	activeID := ""
+	if id, ok := a.activeAgent(ch.ID); ok {
+		activeID = id
+	}
+	defaultID := ""
+	if id, ok := defaultAgentForChannel(ch, snapshot.Agents); ok {
+		defaultID = id
+	}
+	payload := protocol.RouteArbitrationPayload{
+		Channel:        ch,
+		Message:        msg,
+		Recent:         a.store.RecentMessages(ch.ID, 12),
+		Agents:         agents,
+		ActiveAgentID:  activeID,
+		DefaultAgentID: defaultID,
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "route.arbitrate", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "channel", ID: ch.ID}, payload, causationID)
+	var client *daemonClient
+	if a.daemons != nil {
+		client = a.daemons.first()
+	}
+	if client == nil || client.writeJSON(env) != nil {
+		decision := fallbackRouteDecision(payload)
+		a.applyRouteDecision(decision, env.ID)
+		return
+	}
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+}
+
+func fallbackRouteDecision(payload protocol.RouteArbitrationPayload) protocol.RouteDecisionPayload {
+	decision := protocol.RouteDecisionPayload{
+		ChannelID: payload.Channel.ID,
+		MessageID: payload.Message.ID,
+		Reason:    "server heuristic fallback",
+	}
+	if messageLooksTerminal(payload.Message.Text) {
+		decision.Reason = "message does not require an agent response"
+		return decision
+	}
+	allowed := make(map[string]bool, len(payload.Agents))
+	for _, agent := range payload.Agents {
+		allowed[agent.ID] = true
+	}
+	switch {
+	case payload.ActiveAgentID != "" && allowed[payload.ActiveAgentID]:
+		decision.AgentIDs = []string{payload.ActiveAgentID}
+	case payload.DefaultAgentID != "" && allowed[payload.DefaultAgentID]:
+		decision.AgentIDs = []string{payload.DefaultAgentID}
+	case len(payload.Agents) > 0:
+		decision.AgentIDs = []string{payload.Agents[0].ID}
+	}
+	return decision
+}
+
+func (a *app) applyRouteDecision(decision protocol.RouteDecisionPayload, causationID string) {
+	snapshot := a.store.Snapshot()
+	ch, ok := findChannelInSnapshot(snapshot, decision.ChannelID)
+	if !ok {
+		return
+	}
+	msg, ok := findMessageInSnapshot(snapshot, decision.ChannelID, decision.MessageID)
+	if !ok {
+		return
+	}
+	agentIDs := sanitizeRouteDecisionAgents(decision.AgentIDs, agentsForChannel(ch, snapshot.Agents))
+	if len(agentIDs) == 0 {
+		return
+	}
+	if len(agentIDs) == 1 {
+		a.setActiveAgent(ch.ID, agentIDs[0])
+	} else {
+		a.clearActiveChannel(ch.ID)
+	}
+	a.routeAgentMessages(ch, msg, agentIDs, causationID)
+}
+
+func findChannelInSnapshot(snapshot protocol.State, channelID string) (protocol.Channel, bool) {
+	for _, ch := range snapshot.Channels {
+		if ch.ID == channelID {
+			return ch, true
+		}
+	}
+	return protocol.Channel{}, false
+}
+
+func findMessageInSnapshot(snapshot protocol.State, channelID, messageID string) (protocol.Message, bool) {
+	for _, msg := range snapshot.Messages {
+		if msg.ID == messageID && msg.ChannelID == channelID {
+			return msg, true
+		}
+	}
+	return protocol.Message{}, false
+}
+
+func sanitizeRouteDecisionAgents(agentIDs []string, agents []protocol.Agent) []string {
+	allowed := make(map[string]bool, len(agents))
+	for _, agent := range agents {
+		allowed[agent.ID] = true
+	}
+	var out []string
+	seen := make(map[string]bool)
+	for _, id := range agentIDs {
+		id = strings.TrimSpace(id)
+		if !allowed[id] || seen[id] {
+			continue
+		}
+		out = append(out, id)
+		seen[id] = true
+	}
+	if len(out) > 2 {
+		out = out[:2]
+	}
+	return out
 }
 
 func (a *app) assignTaskFromMention(channelID, agentID, causationID string) {
@@ -1394,6 +1512,46 @@ func defaultAgentForChannel(ch protocol.Channel, agents []protocol.Agent) (strin
 	return agents[0].ID, true
 }
 
+func agentsForChannel(ch protocol.Channel, agents []protocol.Agent) []protocol.Agent {
+	if len(ch.MemberIDs) == 0 {
+		return append([]protocol.Agent(nil), agents...)
+	}
+	byID := make(map[string]protocol.Agent, len(agents))
+	for _, agent := range agents {
+		byID[agent.ID] = agent
+	}
+	var out []protocol.Agent
+	seen := make(map[string]bool)
+	for _, id := range ch.MemberIDs {
+		agent, ok := byID[id]
+		if !ok || seen[agent.ID] {
+			continue
+		}
+		out = append(out, agent)
+		seen[agent.ID] = true
+	}
+	if len(out) == 0 {
+		return append([]protocol.Agent(nil), agents...)
+	}
+	return out
+}
+
+func messageLooksTerminal(text string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
+	if normalized == "" {
+		return true
+	}
+	terminal := []string{
+		"ok", "okay", "thanks", "thank you", "got it", "收到", "好的", "可以", "谢谢", "先这样", "不用了", "没事了", "保持待命",
+	}
+	for _, phrase := range terminal {
+		if normalized == phrase || strings.Contains(normalized, phrase) && len([]rune(normalized)) <= 24 {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *app) activeAgent(channelID string) (string, bool) {
 	a.activeMu.RLock()
 	defer a.activeMu.RUnlock()
@@ -1508,6 +1666,12 @@ func (a *app) handleDaemonEvent(daemonID string, env protocol.Envelope) {
 			_ = a.store.UpdateAgentStatus(payload.AgentID, payload.Status, daemonID)
 		}
 		_ = a.store.AddEnvelope(env)
+	case "route.decision":
+		payload, err := protocol.DecodePayload[protocol.RouteDecisionPayload](env)
+		if err == nil {
+			_ = a.store.AddEnvelope(env)
+			a.applyRouteDecision(payload, env.ID)
+		}
 	case "agent.reply":
 		payload, err := protocol.DecodePayload[protocol.AgentReplyPayload](env)
 		if err == nil {

@@ -88,6 +88,33 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 	}
 }
 
+func TestParseRouteDecisionNormalizesAgentTargets(t *testing.T) {
+	decision, err := parseRouteDecision("```json\n{\"agentIds\":[\"QA\",\"@Architect\",\"missing\"],\"reason\":\"needs review\"}\n```", []protocol.Agent{
+		{ID: "agent_qa", Name: "QA"},
+		{ID: "agent_architect", Name: "Architect"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(decision.AgentIDs, ","), "agent_qa,agent_architect"; got != want {
+		t.Fatalf("agent ids = %s, want %s", got, want)
+	}
+	if decision.Reason != "needs review" {
+		t.Fatalf("reason = %q", decision.Reason)
+	}
+}
+
+func TestHeuristicRouteDecisionCanChooseNoOne(t *testing.T) {
+	decision := heuristicRouteDecision(protocol.RouteArbitrationPayload{
+		Channel: protocol.Channel{ID: "chan_general"},
+		Message: protocol.Message{ID: "msg_1", Text: "收到"},
+		Agents:  []protocol.Agent{{ID: "agent_qa", Name: "QA"}},
+	})
+	if len(decision.AgentIDs) != 0 {
+		t.Fatalf("terminal message should choose no agent, got %v", decision.AgentIDs)
+	}
+}
+
 func TestBuildRunnerPromptIncludesImportedSkills(t *testing.T) {
 	request := runnerRequest{
 		EventType: "agent.message",

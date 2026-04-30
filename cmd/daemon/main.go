@@ -25,21 +25,23 @@ type memoryFile struct {
 }
 
 type daemon struct {
-	conn          *websocket.Conn
-	writeMu       sync.Mutex
-	serverID      string
-	name          string
-	memory        memoryFile
-	memoryMu      sync.Mutex
-	memPath       string
-	runner        string
-	runnerFormat  string
-	customRunner  bool
-	forceDemo     bool
-	runnerTimeout time.Duration
-	runnerWorkdir string
-	activeMu      sync.Mutex
-	activeRuns    map[string]activeRun
+	conn           *websocket.Conn
+	writeMu        sync.Mutex
+	serverID       string
+	name           string
+	memory         memoryFile
+	memoryMu       sync.Mutex
+	memPath        string
+	runner         string
+	runnerFormat   string
+	customRunner   bool
+	forceDemo      bool
+	runnerTimeout  time.Duration
+	runnerWorkdir  string
+	arbiterRuntime string
+	arbiterModel   string
+	activeMu       sync.Mutex
+	activeRuns     map[string]activeRun
 }
 
 type activeRun struct {
@@ -77,6 +79,8 @@ func main() {
 	runnerFormatFlag := flag.String("runner-format", getenv("OPEN_AGENT_RUNNER_FORMAT", "json"), "runner stdin format: json or prompt")
 	runnerTimeoutFlag := flag.Duration("runner-timeout", getenvDuration("OPEN_AGENT_RUNNER_TIMEOUT", 2*time.Minute), "local agent command timeout")
 	runnerWorkdirFlag := flag.String("runner-workdir", getenv("OPEN_AGENT_RUNNER_WORKDIR", "."), "working directory for the local agent command")
+	arbiterRuntimeFlag := flag.String("arbiter-runtime", getenv("OPEN_AGENT_ARBITER_RUNTIME", "codex"), "hidden route arbiter runtime")
+	arbiterModelFlag := flag.String("arbiter-model", getenv("OPEN_AGENT_ARBITER_MODEL", ""), "hidden route arbiter model")
 	flag.Parse()
 
 	memPath := filepath.Join(getenv("SLOCK_DAEMON_HOME", ".openslock-daemon"), "memory.json")
@@ -92,15 +96,17 @@ func main() {
 	defer conn.Close()
 
 	d := &daemon{
-		conn:          conn,
-		name:          *nameFlag,
-		memory:        mem,
-		memPath:       memPath,
-		runner:        strings.TrimSpace(*runnerFlag),
-		runnerFormat:  strings.ToLower(strings.TrimSpace(*runnerFormatFlag)),
-		runnerTimeout: *runnerTimeoutFlag,
-		runnerWorkdir: *runnerWorkdirFlag,
-		activeRuns:    make(map[string]activeRun),
+		conn:           conn,
+		name:           *nameFlag,
+		memory:         mem,
+		memPath:        memPath,
+		runner:         strings.TrimSpace(*runnerFlag),
+		runnerFormat:   strings.ToLower(strings.TrimSpace(*runnerFormatFlag)),
+		runnerTimeout:  *runnerTimeoutFlag,
+		runnerWorkdir:  *runnerWorkdirFlag,
+		arbiterRuntime: strings.TrimSpace(*arbiterRuntimeFlag),
+		arbiterModel:   strings.TrimSpace(*arbiterModelFlag),
+		activeRuns:     make(map[string]activeRun),
 	}
 	d.configureRunner()
 	if d.runnerFormat == "" {
@@ -161,6 +167,12 @@ func (d *daemon) handle(env protocol.Envelope) error {
 			return err
 		}
 		d.startReply("agent.message", payload.Agent, payload.Channel.ID, "", payload.Message.Text, payload.PeerAgents, payload.ThreadDepth, payload.Recent, env.ID)
+	case "route.arbitrate":
+		payload, err := protocol.DecodePayload[protocol.RouteArbitrationPayload](env)
+		if err != nil {
+			return err
+		}
+		go d.arbitrateRoute(payload, env.ID)
 	case "task.assigned":
 		payload, err := protocol.DecodePayload[protocol.TaskAssignedPayload](env)
 		if err != nil {
@@ -264,6 +276,44 @@ func (d *daemon) reply(ctx context.Context, eventType string, agent protocol.Age
 	return d.sendStatus(agent.ID, "idle", causationID)
 }
 
+func (d *daemon) arbitrateRoute(payload protocol.RouteArbitrationPayload, causationID string) {
+	decision := protocol.RouteDecisionPayload{
+		ChannelID: payload.Channel.ID,
+		MessageID: payload.Message.ID,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), d.runnerTimeout)
+	defer cancel()
+
+	prompt := buildArbiterPrompt(payload)
+	request := runnerRequest{
+		EventType:   "route.arbitrate",
+		ServerID:    d.serverID,
+		ChannelID:   payload.Channel.ID,
+		Workdir:     d.effectiveWorkdir(""),
+		Prompt:      prompt,
+		Agent:       d.arbiterAgent(),
+		Recent:      payload.Recent,
+		CausationID: causationID,
+	}
+	reply, err := d.buildArbiterReply(ctx, request)
+	if err == nil {
+		if parsed, parseErr := parseRouteDecision(reply, payload.Agents); parseErr == nil {
+			decision.AgentIDs = parsed.AgentIDs
+			decision.Reason = parsed.Reason
+		} else {
+			decision = heuristicRouteDecision(payload)
+			decision.Reason = "arbiter parse failed: " + parseErr.Error()
+		}
+	} else {
+		decision = heuristicRouteDecision(payload)
+		decision.Reason = "arbiter fallback: " + err.Error()
+	}
+	env := d.newEnvelope("route.decision", protocol.Actor{Kind: "daemon", ID: "local", Name: d.name}, protocol.Scope{Kind: "channel", ID: payload.Channel.ID}, decision, causationID)
+	if err := d.writeEnvelope(env); err != nil {
+		log.Printf("route.decision failed: %v", err)
+	}
+}
+
 func (d *daemon) setActive(agentID, runID, channelID string, cancel context.CancelFunc) {
 	d.activeMu.Lock()
 	defer d.activeMu.Unlock()
@@ -351,6 +401,37 @@ func (d *daemon) buildAgentReply(ctx context.Context, request runnerRequest) (st
 		return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 	}
 	return d.runExternalAgent(ctx, request, command, format)
+}
+
+func (d *daemon) buildArbiterReply(ctx context.Context, request runnerRequest) (string, error) {
+	if d.customRunner {
+		return d.runExternalAgent(ctx, request, d.runner, d.runnerFormat)
+	}
+	if d.forceDemo {
+		return "", errors.New("demo runtime cannot run LLM route arbitration")
+	}
+	command, format, err := d.commandForAgent(request.Agent, request.Workdir)
+	if err != nil {
+		return "", err
+	}
+	if command == "" {
+		return "", errors.New("no LLM command configured for route arbitration")
+	}
+	return d.runExternalAgent(ctx, request, command, format)
+}
+
+func (d *daemon) arbiterAgent() protocol.Agent {
+	runtimeName := strings.TrimSpace(d.arbiterRuntime)
+	if runtimeName == "" {
+		runtimeName = "codex"
+	}
+	return protocol.Agent{
+		ID:      "agent_route_arbiter",
+		Name:    "RouteArbiter",
+		Persona: "Hidden channel router that selects which participant should answer a message.",
+		Runtime: runtimeName,
+		Model:   d.arbiterModel,
+	}
 }
 
 func sleepWithCancel(ctx context.Context, duration time.Duration) error {
@@ -540,6 +621,11 @@ func buildRunnerPrompt(request runnerRequest) string {
 		fmt.Fprintf(&b, "Working directory: %s\n", request.Workdir)
 	}
 	b.WriteString("\n")
+	if request.EventType == "route.arbitrate" {
+		b.WriteString(request.Prompt)
+		b.WriteString("\n")
+		return strings.ToValidUTF8(b.String(), "\uFFFD")
+	}
 	if request.EventType == "task.assigned" {
 		b.WriteString("Task workflow:\n")
 		b.WriteString("- You are the current owner of this task; the server has already moved it to Doing.\n")
@@ -674,6 +760,146 @@ func peerMentionLine(peerAgents []protocol.Agent) string {
 		return ""
 	}
 	return "Looping in " + strings.Join(mentions, " ") + " for this multi-agent thread."
+}
+
+func buildArbiterPrompt(payload protocol.RouteArbitrationPayload) string {
+	var b strings.Builder
+	b.WriteString("You are the hidden routing arbiter for an Open Agent Room channel.\n")
+	b.WriteString("Decide which agent, if any, should reply to the latest human message. This is not a visible chat reply.\n")
+	b.WriteString("Use the latest message, recent context, agent roles, active agent, and channel default. Prefer zero agents for acknowledgements, thanks, status-only notes, or messages that do not need an AI response.\n")
+	b.WriteString("Return JSON only with this shape: {\"agentIds\":[\"agent_id\"],\"reason\":\"short reason\"}. Use an empty agentIds array when nobody should reply. Choose at most two agents.\n\n")
+	fmt.Fprintf(&b, "Channel: #%s", payload.Channel.Name)
+	if payload.Channel.Topic != "" {
+		fmt.Fprintf(&b, " - %s", payload.Channel.Topic)
+	}
+	b.WriteString("\n")
+	if payload.ActiveAgentID != "" {
+		fmt.Fprintf(&b, "Active agent hint: %s\n", payload.ActiveAgentID)
+	}
+	if payload.DefaultAgentID != "" {
+		fmt.Fprintf(&b, "Default agent hint: %s\n", payload.DefaultAgentID)
+	}
+	b.WriteString("\nAgents:\n")
+	for _, agent := range payload.Agents {
+		fmt.Fprintf(&b, "- id=%s handle=%s role=%s runtime=%s status=%s\n", agent.ID, protocol.MentionHandle(agent.Name), compact(agent.Persona, 180), agent.Runtime, agent.Status)
+	}
+	if len(payload.Recent) > 0 {
+		b.WriteString("\nRecent context:\n")
+		for _, msg := range payload.Recent {
+			fmt.Fprintf(&b, "- %s (%s): %s\n", msg.AuthorName, msg.AuthorKind, compact(msg.Text, 260))
+		}
+	}
+	fmt.Fprintf(&b, "\nLatest human message:\n%s\n", payload.Message.Text)
+	return strings.ToValidUTF8(b.String(), "\uFFFD")
+}
+
+type routeDecisionJSON struct {
+	AgentIDs []string `json:"agentIds"`
+	AgentID  string   `json:"agentId"`
+	Reason   string   `json:"reason"`
+}
+
+func parseRouteDecision(text string, agents []protocol.Agent) (protocol.RouteDecisionPayload, error) {
+	var parsed routeDecisionJSON
+	if err := json.Unmarshal([]byte(extractJSONObject(text)), &parsed); err != nil {
+		return protocol.RouteDecisionPayload{}, err
+	}
+	candidates := parsed.AgentIDs
+	if parsed.AgentID != "" {
+		candidates = append(candidates, parsed.AgentID)
+	}
+	ids := normalizeArbiterTargets(candidates, agents)
+	if len(ids) > 2 {
+		ids = ids[:2]
+	}
+	return protocol.RouteDecisionPayload{AgentIDs: ids, Reason: strings.TrimSpace(parsed.Reason)}, nil
+}
+
+func extractJSONObject(text string) string {
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "```") {
+		text = strings.TrimPrefix(text, "```json")
+		text = strings.TrimPrefix(text, "```")
+		text = strings.TrimSuffix(text, "```")
+		text = strings.TrimSpace(text)
+	}
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start >= 0 && end >= start {
+		return text[start : end+1]
+	}
+	return text
+}
+
+func normalizeArbiterTargets(candidates []string, agents []protocol.Agent) []string {
+	byKey := make(map[string]string)
+	for _, agent := range agents {
+		byKey[arbiterKey(agent.ID)] = agent.ID
+		byKey[arbiterKey(strings.TrimPrefix(agent.ID, "agent_"))] = agent.ID
+		byKey[arbiterKey(agent.Name)] = agent.ID
+		byKey[arbiterKey(protocol.MentionHandle(agent.Name))] = agent.ID
+	}
+	var ids []string
+	seen := make(map[string]bool)
+	for _, candidate := range candidates {
+		key := arbiterKey(candidate)
+		if key == "" || key == "none" || key == "nobody" || key == "noone" {
+			continue
+		}
+		id, ok := byKey[key]
+		if !ok || seen[id] {
+			continue
+		}
+		ids = append(ids, id)
+		seen[id] = true
+	}
+	return ids
+}
+
+func arbiterKey(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "@"))
+	return strings.ToLower(value)
+}
+
+func heuristicRouteDecision(payload protocol.RouteArbitrationPayload) protocol.RouteDecisionPayload {
+	decision := protocol.RouteDecisionPayload{
+		ChannelID: payload.Channel.ID,
+		MessageID: payload.Message.ID,
+		Reason:    "heuristic fallback",
+	}
+	if messageLooksTerminal(payload.Message.Text) {
+		decision.Reason = "message does not require an agent response"
+		return decision
+	}
+	allowed := make(map[string]bool)
+	for _, agent := range payload.Agents {
+		allowed[agent.ID] = true
+	}
+	switch {
+	case payload.ActiveAgentID != "" && allowed[payload.ActiveAgentID]:
+		decision.AgentIDs = []string{payload.ActiveAgentID}
+	case payload.DefaultAgentID != "" && allowed[payload.DefaultAgentID]:
+		decision.AgentIDs = []string{payload.DefaultAgentID}
+	case len(payload.Agents) > 0:
+		decision.AgentIDs = []string{payload.Agents[0].ID}
+	}
+	return decision
+}
+
+func messageLooksTerminal(text string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
+	if normalized == "" {
+		return true
+	}
+	terminal := []string{
+		"ok", "okay", "thanks", "thank you", "got it", "收到", "好的", "可以", "谢谢", "先这样", "不用了", "没事了", "保持待命",
+	}
+	for _, phrase := range terminal {
+		if normalized == phrase || strings.Contains(normalized, phrase) && len([]rune(normalized)) <= 24 {
+			return true
+		}
+	}
+	return false
 }
 
 func compact(text string, limit int) string {
