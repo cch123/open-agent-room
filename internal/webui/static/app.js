@@ -20,6 +20,7 @@ const state = {
   skillSearch: "",
   skillTagFilter: "",
   taskDragId: "",
+  focusTaskId: "",
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
@@ -71,6 +72,7 @@ const els = {
   defaultAgentControl: document.querySelector(".default-agent-control"),
   daemonChip: document.querySelector("#daemon-chip"),
   daemonCount: document.querySelector("#daemon-count"),
+  taskContext: document.querySelector("#task-context"),
   messages: document.querySelector("#messages"),
   skillManager: document.querySelector("#skill-manager"),
   skillManagerCount: document.querySelector("#skill-manager-count"),
@@ -170,12 +172,17 @@ function render() {
     state.channelId = channels[0]?.id || "";
   }
   const current = channels.find((channel) => channel.id === state.channelId);
+  const tasks = state.snapshot.tasks || [];
+  const taskLanes = state.snapshot.taskLanes || [];
+  const currentTask = taskForChannel(current, tasks);
+  const currentTaskLane = currentTask ? taskLanes.find((lane) => lane.id === currentTask.laneId) : null;
   const isSkillView = state.view === "skills";
   const isTaskView = state.view === "tasks";
   const isManagementView = isSkillView || isTaskView;
-  els.roomEyebrow.textContent = isManagementView ? "Management" : "Channel";
+  els.roomEyebrow.textContent = isManagementView ? "Management" : currentTask ? "Task Channel" : "Channel";
   els.roomName.textContent = isTaskView ? "Tasks" : isSkillView ? "Skill Center" : current ? `#${current.name}` : "#channel";
   els.defaultAgentControl.hidden = isManagementView;
+  renderTaskChannelContext(currentTask, currentTaskLane, isManagementView);
   els.messages.hidden = isManagementView;
   els.composer.hidden = isManagementView;
   els.skillManager.hidden = !isSkillView;
@@ -191,7 +198,7 @@ function render() {
   if (isSkillView) {
     renderSkillManager(state.snapshot.skills || [], agents);
   } else if (isTaskView) {
-    renderTaskManager(state.snapshot.taskLanes || [], state.snapshot.tasks || [], channels);
+    renderTaskManager(taskLanes, tasks, channels);
   } else {
     renderMessages();
     renderMentions(availableMentionAgents(current, agents));
@@ -343,6 +350,29 @@ function renderMessages() {
     els.messages.append(item);
   }
   els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function renderTaskChannelContext(task, lane, isManagementView) {
+  if (isManagementView || !task) {
+    els.taskContext.hidden = true;
+    els.taskContext.innerHTML = "";
+    return;
+  }
+  const updated = task.updatedAt || task.createdAt;
+  els.taskContext.hidden = false;
+  els.taskContext.innerHTML = `
+    <div class="task-context-icon" aria-hidden="true">Tk</div>
+    <div class="task-context-main">
+      <div class="task-context-meta">
+        <span>${escapeHTML(lane?.name || "Unplanned")}</span>
+        <span>Updated ${escapeHTML(formatTaskTime(updated))}</span>
+        <span>${task.channelId ? "Discussion channel" : "No channel"}</span>
+      </div>
+      <strong>${escapeHTML(task.title)}</strong>
+      ${task.description ? `<p>${escapeHTML(task.description)}</p>` : ""}
+    </div>
+    <button type="button" class="item-action visible" data-action="open-task-board">Open Task</button>`;
+  els.taskContext.querySelector("[data-action='open-task-board']").addEventListener("click", () => viewTaskOnBoard(task.id));
 }
 
 function renderMessageContent(message) {
@@ -1294,6 +1324,12 @@ async function openTaskChannel(task) {
   }
 }
 
+function viewTaskOnBoard(taskId) {
+  state.view = "tasks";
+  state.focusTaskId = taskId;
+  render();
+}
+
 async function deleteTask(task) {
   if (!window.confirm(`Delete task "${task.title}"? The discussion channel will stay available if one exists.`)) return;
   try {
@@ -1533,6 +1569,7 @@ function renderTaskManager(lanes, tasks, channels) {
 
     els.taskBoard.append(laneEl);
   }
+  focusTaskCardIfNeeded();
 }
 
 function sortedTaskLanes(lanes) {
@@ -1543,6 +1580,27 @@ function taskLaneOptionsHTML(lanes, selectedID) {
   return lanes
     .map((lane) => `<option value="${escapeHTML(lane.id)}" ${lane.id === selectedID ? "selected" : ""}>${escapeHTML(lane.name)}</option>`)
     .join("");
+}
+
+function taskForChannel(channel, tasks = state.snapshot?.tasks || []) {
+  if (!channel) return null;
+  return tasks.find((task) => task.channelId === channel.id) || null;
+}
+
+function focusTaskCardIfNeeded() {
+  const taskId = state.focusTaskId;
+  if (!taskId) return;
+  requestAnimationFrame(() => {
+    const card = [...els.taskBoard.querySelectorAll(".task-card")].find((candidate) => candidate.dataset.taskId === taskId);
+    if (!card) {
+      state.focusTaskId = "";
+      return;
+    }
+    card.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    card.classList.add("focused");
+    window.setTimeout(() => card.classList.remove("focused"), 1800);
+    state.focusTaskId = "";
+  });
 }
 
 function renderAgentSkillLibrary() {
