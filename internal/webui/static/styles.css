@@ -582,16 +582,20 @@ h2 {
 
 .mention-row {
   display: flex;
+  align-items: center;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 9px;
 }
 
 .mention-button {
+  display: inline-grid;
+  place-items: center;
+  min-height: 36px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  padding: 5px 9px;
+  padding: 6px 10px;
   white-space: nowrap;
   font-size: 13px;
 }
@@ -604,20 +608,27 @@ h2 {
 
 .compose-row {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 12px;
+  align-items: stretch;
 }
 
 .compose-row > button {
-  min-height: 44px;
-  min-width: 68px;
+  display: grid;
+  place-items: center;
+  min-height: 76px;
+  width: 100%;
   box-shadow: 0 8px 16px rgba(49, 95, 122, 0.18);
 }
 
 .compose-input-wrap {
   position: relative;
   min-width: 0;
+  display: grid;
+}
+
+.compose-input-wrap textarea {
+  min-height: 76px;
 }
 
 .mention-suggestions {
@@ -1224,6 +1235,7 @@ menu button:first-child:hover {
 
   .compose-row > button {
     width: 100%;
+    min-height: 48px;
   }
 
   .mention-suggestions {
