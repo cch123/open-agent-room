@@ -4,6 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Open Agent Room</title>
+    <script>
+      (() => {
+        try {
+          const theme = localStorage.getItem("open-agent-room-theme") || "light";
+          document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+        } catch {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -32,6 +42,13 @@
             <span>
               <strong>Skill Center</strong>
               <small>Manage imported skills</small>
+            </span>
+          </button>
+          <button id="theme-toggle" class="workspace-tool" type="button" aria-pressed="false">
+            <span class="tool-icon">Bk</span>
+            <span>
+              <strong>Black Theme</strong>
+              <small>Cyberpunk mode</small>
             </span>
           </button>
         </nav>

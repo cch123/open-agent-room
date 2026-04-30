@@ -1,7 +1,10 @@
+const themeStorageKey = "open-agent-room-theme";
+
 const state = {
   snapshot: null,
   view: "channel",
   channelId: "chan_general",
+  theme: initialTheme(),
   selectedEventId: null,
   mention: {
     active: false,
@@ -58,6 +61,7 @@ const els = {
   agentList: document.querySelector("#agent-list"),
   openTasks: document.querySelector("#open-tasks"),
   openSkills: document.querySelector("#open-skills"),
+  themeToggle: document.querySelector("#theme-toggle"),
   roomEyebrow: document.querySelector("#room-eyebrow"),
   roomName: document.querySelector("#room-name"),
   defaultAgentControl: document.querySelector(".default-agent-control"),
@@ -749,6 +753,39 @@ function renderEvents(events) {
   els.eventDetail.textContent = selected ? JSON.stringify(selected, null, 2) : "{}";
 }
 
+function initialTheme() {
+  try {
+    return localStorage.getItem(themeStorageKey) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function applyTheme(theme) {
+  const normalized = theme === "dark" ? "dark" : "light";
+  state.theme = normalized;
+  document.documentElement.dataset.theme = normalized;
+  try {
+    localStorage.setItem(themeStorageKey, normalized);
+  } catch {
+    // Theme persistence is optional.
+  }
+  updateThemeToggle();
+}
+
+function updateThemeToggle() {
+  if (!els.themeToggle) return;
+  const isDark = state.theme === "dark";
+  els.themeToggle.classList.toggle("active", isDark);
+  els.themeToggle.setAttribute("aria-pressed", String(isDark));
+  const strong = els.themeToggle.querySelector("strong");
+  const small = els.themeToggle.querySelector("small");
+  const icon = els.themeToggle.querySelector(".tool-icon");
+  if (strong) strong.textContent = isDark ? "Light Theme" : "Black Theme";
+  if (small) small.textContent = isDark ? "Return to clean mode" : "Cyberpunk mode";
+  if (icon) icon.textContent = isDark ? "Lt" : "Bk";
+}
+
 async function sendComposerMessage() {
   const text = els.input.value.trim();
   if (!text) return;
@@ -901,6 +938,9 @@ els.openTasks.addEventListener("click", () => {
 els.openSkills.addEventListener("click", () => {
   state.view = "skills";
   render();
+});
+els.themeToggle.addEventListener("click", () => {
+  applyTheme(state.theme === "dark" ? "light" : "dark");
 });
 els.taskManagerAdd.addEventListener("click", () => openTaskDialog());
 els.taskLaneAdd.addEventListener("click", () => {
@@ -1966,4 +2006,5 @@ load().catch((error) => {
   document.body.innerHTML = `<pre>${escapeHTML(error.message)}</pre>`;
 });
 
+applyTheme(state.theme);
 populateModelOptions("codex");
