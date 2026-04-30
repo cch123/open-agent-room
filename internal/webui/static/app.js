@@ -138,8 +138,9 @@ const els = {
   skillList: document.querySelector("#skill-list"),
   skillAttachRow: document.querySelector("#skill-attach-row"),
   skillAttachSelect: document.querySelector("#skill-attach-select"),
-  skillAttach: document.querySelector("#skill-attach"),
+  skillModeSwitch: document.querySelector(".skill-mode-switch"),
   skillModeButtons: document.querySelectorAll("[data-skill-mode]"),
+  skillCreateFields: document.querySelector("#skill-create-fields"),
   skillName: document.querySelector("#skill-name"),
   skillNameLabel: document.querySelector("#skill-name-label"),
   skillSource: document.querySelector("#skill-source"),
@@ -148,6 +149,7 @@ const els = {
   skillLocalFields: document.querySelector("#skill-local-fields"),
   skillFile: document.querySelector("#skill-file"),
   skillContent: document.querySelector("#skill-content"),
+  skillImport: document.querySelector("#skill-import"),
   skillError: document.querySelector("#skill-error"),
   channelDialog: document.querySelector("#channel-dialog"),
   markdownDialog: document.querySelector("#markdown-dialog"),
@@ -1290,41 +1292,25 @@ els.skillFile.addEventListener("change", async () => {
     setSkillError(`Could not read skill file: ${error.message}`);
   }
 });
-els.skillAttach.addEventListener("click", async () => {
-  const agentId = state.skillAgentId;
-  const skillId = els.skillAttachSelect.value;
-  clearSkillError();
-  if (!agentId) {
-    setSkillError("Choose an agent before attaching a skill.");
-    return;
-  }
-  if (!skillId) {
-    setSkillError("No unattached Skill Center skill is selected.");
-    return;
-  }
-  try {
-    await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
-      method: "POST",
-      body: JSON.stringify({ skillId }),
-    });
-    state.snapshot = await api("/api/state");
-    render();
-    renderSkillDialog();
-  } catch (error) {
-    setSkillError(error.message);
-  }
+
+els.skillAttachSelect.addEventListener("change", () => {
+  if (state.skillCreateMode === "attach") updateSkillCreateModeUI();
 });
 
 for (const button of els.skillModeButtons) {
   button.addEventListener("click", () => {
-    state.skillCreateMode = button.dataset.skillMode === "cloud" ? "cloud" : "local";
+    state.skillCreateMode = ["attach", "cloud"].includes(button.dataset.skillMode) ? button.dataset.skillMode : "local";
     clearSkillError();
     updateSkillCreateModeUI();
   });
 }
 
-document.querySelector("#skill-import").addEventListener("click", async (event) => {
+els.skillImport.addEventListener("click", async (event) => {
   event.preventDefault();
+  if (state.skillCreateMode === "attach") {
+    await attachSelectedSkill();
+    return;
+  }
   const name = els.skillName.value.trim();
   const source = els.skillSource.value.trim();
   const isCloudImport = state.skillCreateMode === "cloud";
@@ -1373,6 +1359,31 @@ document.querySelector("#skill-import").addEventListener("click", async (event) 
     setSkillError(error.message);
   }
 });
+
+async function attachSelectedSkill() {
+  const agentId = state.skillAgentId;
+  const skillId = els.skillAttachSelect.value;
+  clearSkillError();
+  if (!agentId) {
+    setSkillError("Choose an agent before attaching a skill.");
+    return;
+  }
+  if (!skillId) {
+    setSkillError("No unattached Skill Center skill is selected.");
+    return;
+  }
+  try {
+    await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
+      method: "POST",
+      body: JSON.stringify({ skillId }),
+    });
+    state.snapshot = await api("/api/state");
+    render();
+    renderSkillDialog();
+  } catch (error) {
+    setSkillError(error.message);
+  }
+}
 
 document.querySelector("#channel-create").addEventListener("click", async (event) => {
   event.preventDefault();
@@ -1633,7 +1644,7 @@ function openSkillDialog(agent) {
     return;
   }
   state.skillDialogMode = "agent";
-  state.skillCreateMode = "local";
+  state.skillCreateMode = "attach";
   state.skillAgentId = agent.id;
   els.skillName.value = "";
   els.skillSource.value = "";
@@ -1670,13 +1681,21 @@ function clearSkillError() {
 }
 
 function updateSkillCreateModeUI() {
+  if (state.skillDialogMode === "global" && state.skillCreateMode === "attach") {
+    state.skillCreateMode = "local";
+  }
+  const isAttach = state.skillCreateMode === "attach";
   const isCloudImport = state.skillCreateMode === "cloud";
+  els.skillModeSwitch.classList.toggle("two-option", state.skillDialogMode === "global");
   for (const button of els.skillModeButtons) {
+    button.hidden = button.dataset.skillMode === "attach" && state.skillDialogMode === "global";
     const active = button.dataset.skillMode === state.skillCreateMode;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  els.skillLocalFields.hidden = isCloudImport;
+  els.skillAttachRow.hidden = !isAttach || state.skillDialogMode === "global";
+  els.skillCreateFields.hidden = isAttach;
+  els.skillLocalFields.hidden = isAttach || isCloudImport;
   els.skillNameLabel.textContent = isCloudImport ? "Skill name (optional)" : "Skill name";
   els.skillSourceLabel.textContent = isCloudImport ? "Cloud URL or npx command" : "Source note";
   els.skillSource.placeholder = isCloudImport
@@ -1684,8 +1703,9 @@ function updateSkillCreateModeUI() {
     : "SKILL.md or internal note";
   const action = state.skillDialogMode === "global"
     ? (isCloudImport ? "Import" : "Create")
-    : (isCloudImport ? "Import & Attach" : "Create & Attach");
-  document.querySelector("#skill-import").textContent = action;
+    : (isAttach ? "Attach" : (isCloudImport ? "Import & Attach" : "Create & Attach"));
+  els.skillImport.textContent = action;
+  els.skillImport.disabled = isAttach && !els.skillAttachSelect.value;
 }
 
 function renderSkillManager(skills, agents) {
@@ -1767,7 +1787,7 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
     laneEl.innerHTML = `
       <header class="task-lane-header">
         <div>
-          <strong>${escapeHTML(lane.name)}</strong>
+          <strong><span class="task-lane-status-icon" data-status-tone="${taskLaneTone(lane.name)}" aria-hidden="true"></span>${escapeHTML(lane.name)}</strong>
           <span>${laneTasks.length} task${laneTasks.length === 1 ? "" : "s"}</span>
         </div>
         <div class="task-lane-actions">
@@ -1804,6 +1824,8 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
       card.draggable = true;
       card.dataset.taskId = task.id;
       const channel = task.channelId ? channelById.get(task.channelId) : null;
+      const currentLane = orderedLanes.find((candidate) => candidate.id === task.laneId) || lane;
+      const statusTone = taskLaneTone(currentLane?.name || "");
       card.innerHTML = `
         <div class="task-card-main">
           <strong>${escapeHTML(task.title)}</strong>
@@ -1819,7 +1841,13 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
           <select class="task-owner-select" aria-label="Assign owner for ${escapeHTML(task.title)}">${taskAssigneeOptionsHTML(users, agents, task)}</select>
         </label>
         <div class="task-card-controls">
-          <select class="task-status-select" aria-label="Move task ${escapeHTML(task.title)}">${taskLaneOptionsHTML(orderedLanes, task.laneId)}</select>
+          <label class="task-status-control" data-status-tone="${statusTone}">
+            <span class="task-status-chip" aria-hidden="true">
+              <span class="task-status-icon"></span>
+              <span>${escapeHTML(currentLane?.name || "Unplanned")}</span>
+            </span>
+            <select class="task-status-select" aria-label="Move task ${escapeHTML(task.title)}">${taskLaneOptionsHTML(orderedLanes, task.laneId)}</select>
+          </label>
           <button type="button" class="item-action visible" data-action="edit-task">Edit</button>
           <button type="button" class="item-action visible" data-action="discuss">Chat</button>
           <button type="button" class="item-delete visible" data-action="delete-task" aria-label="Delete task ${escapeHTML(task.title)}">x</button>
@@ -1863,6 +1891,17 @@ function taskLaneOptionsHTML(lanes, selectedID) {
   return lanes
     .map((lane) => `<option value="${escapeHTML(lane.id)}" ${lane.id === selectedID ? "selected" : ""}>${escapeHTML(lane.name)}</option>`)
     .join("");
+}
+
+function taskLaneTone(name = "") {
+  const normalized = name.trim().toLowerCase();
+  if (normalized === "backlog") return "backlog";
+  if (normalized === "todo" || normalized === "to do") return "todo";
+  if (normalized === "doing" || normalized === "in progress") return "doing";
+  if (normalized === "review" || normalized === "qa") return "review";
+  if (normalized === "done" || normalized === "complete" || normalized === "completed") return "done";
+  if (normalized === "unplanned" || normalized === "unplaned") return "unplanned";
+  return "custom";
 }
 
 function taskAssigneeOptionsHTML(users, agents, task) {
@@ -2006,11 +2045,10 @@ function renderSkillDialog() {
   els.skillDialogTitle.textContent = "Manage Agent Skills";
   els.skillAgentName.textContent = agent ? `${agent.name} · ${runtimeLabel(agent)}` : "";
   els.skillList.hidden = false;
-  els.skillAttachRow.hidden = false;
-  updateSkillCreateModeUI();
   els.skillList.innerHTML = "";
   if (!agent) return;
   renderSkillAttachOptions(agent);
+  updateSkillCreateModeUI();
   const skills = agent.skills || [];
   if (skills.length === 0) {
     const empty = document.createElement("p");
@@ -2048,13 +2086,13 @@ function renderSkillAttachOptions(agent) {
     option.textContent = `${skill.name} · ${skill.source || "manual import"}${tags ? ` · ${tags}` : ""}`;
     els.skillAttachSelect.append(option);
   }
-  els.skillAttach.disabled = available.length === 0;
   if (available.length === 0) {
     const option = document.createElement("option");
     option.value = "";
     option.textContent = "No unattached skills";
     els.skillAttachSelect.append(option);
   }
+  els.skillImport.disabled = state.skillCreateMode === "attach" && available.length === 0;
 }
 
 function currentSkillAgent() {

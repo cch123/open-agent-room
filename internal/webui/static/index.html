@@ -317,29 +317,31 @@
         <h2 id="skill-dialog-title">Import Skill</h2>
         <p id="skill-agent-name" class="muted"></p>
         <div id="skill-list" class="skill-list"></div>
-        <div id="skill-attach-row" class="skill-attach-row">
-          <label>
-            Attach existing skill
-            <select id="skill-attach-select"></select>
-          </label>
-          <button id="skill-attach" type="button">Attach</button>
-        </div>
         <div class="skill-mode-switch" role="group" aria-label="Skill create mode">
-          <button type="button" data-skill-mode="local" class="active">Local create</button>
+          <button type="button" data-skill-mode="attach">Attach Existing</button>
+          <button type="button" data-skill-mode="local" class="active">Local Create</button>
           <button type="button" data-skill-mode="cloud">Cloud import</button>
         </div>
-        <label>
-          <span id="skill-name-label">Skill name</span>
-          <input id="skill-name" autocomplete="off" placeholder="Review discipline" />
-        </label>
-        <label>
-          <span id="skill-source-label">Source note</span>
-          <input id="skill-source" autocomplete="off" placeholder="SKILL.md or internal note" />
-        </label>
-        <label>
-          Tags
-          <input id="skill-tags" autocomplete="off" placeholder="review, go, frontend" />
-        </label>
+        <div id="skill-attach-row" class="skill-attach-row">
+          <label>
+            Skill Center skill
+            <select id="skill-attach-select"></select>
+          </label>
+        </div>
+        <div id="skill-create-fields" class="skill-create-fields">
+          <label>
+            <span id="skill-name-label">Skill name</span>
+            <input id="skill-name" autocomplete="off" placeholder="Review discipline" />
+          </label>
+          <label>
+            <span id="skill-source-label">Source note</span>
+            <input id="skill-source" autocomplete="off" placeholder="SKILL.md or internal note" />
+          </label>
+          <label>
+            Tags
+            <input id="skill-tags" autocomplete="off" placeholder="review, go, frontend" />
+          </label>
+        </div>
         <div id="skill-local-fields" class="skill-local-fields">
           <label>
             Import file

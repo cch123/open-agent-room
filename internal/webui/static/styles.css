@@ -1096,6 +1096,10 @@ h2 {
 }
 
 .task-lane-header strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
   font-size: 14px;
 }
 
@@ -1238,10 +1242,161 @@ h2 {
   align-items: center;
 }
 
-.task-status-select {
+.task-status-control {
+  --status-color: #315f7a;
+  --status-bg: rgba(49, 95, 122, 0.1);
+  position: relative;
+  display: flex;
+  min-width: 0;
   min-height: 32px;
-  padding: 5px 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--status-bg);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.task-status-chip {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 24px 5px 9px;
+  color: inherit;
   font-size: 12px;
+  font-weight: 820;
+  line-height: 1;
+}
+
+.task-status-chip > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-status-chip::after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.7;
+  transform: translateY(-65%) rotate(45deg);
+}
+
+.task-status-icon,
+.task-lane-status-icon {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--status-color);
+  border-radius: 999px;
+  color: var(--status-color);
+}
+
+.task-lane-status-icon {
+  width: 11px;
+  height: 11px;
+}
+
+[data-status-tone="backlog"] {
+  --status-color: #64748b;
+  --status-bg: rgba(100, 116, 139, 0.12);
+}
+
+[data-status-tone="todo"] {
+  --status-color: #2563eb;
+  --status-bg: rgba(37, 99, 235, 0.11);
+}
+
+[data-status-tone="doing"] {
+  --status-color: #f59e0b;
+  --status-bg: rgba(245, 158, 11, 0.14);
+}
+
+[data-status-tone="review"] {
+  --status-color: #8b5cf6;
+  --status-bg: rgba(139, 92, 246, 0.14);
+}
+
+[data-status-tone="done"] {
+  --status-color: #059669;
+  --status-bg: rgba(5, 150, 105, 0.12);
+}
+
+[data-status-tone="unplanned"] {
+  --status-color: #db2777;
+  --status-bg: rgba(219, 39, 119, 0.12);
+}
+
+[data-status-tone="custom"] {
+  --status-color: #0891b2;
+  --status-bg: rgba(8, 145, 178, 0.12);
+}
+
+[data-status-tone="backlog"] .task-status-icon,
+.task-lane-status-icon[data-status-tone="backlog"] {
+  border-radius: 3px;
+}
+
+[data-status-tone="doing"] .task-status-icon,
+.task-lane-status-icon[data-status-tone="doing"] {
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid var(--status-color);
+  border-right: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-status-tone="review"] .task-status-icon,
+.task-lane-status-icon[data-status-tone="review"] {
+  border-radius: 3px;
+  transform: rotate(45deg);
+}
+
+[data-status-tone="done"] .task-status-icon,
+.task-lane-status-icon[data-status-tone="done"] {
+  border: 0;
+}
+
+[data-status-tone="done"] .task-status-icon::after,
+.task-lane-status-icon[data-status-tone="done"]::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 5px;
+  height: 9px;
+  border-right: 3px solid var(--status-color);
+  border-bottom: 3px solid var(--status-color);
+  transform: rotate(42deg);
+}
+
+[data-status-tone="unplanned"] .task-status-icon,
+.task-lane-status-icon[data-status-tone="unplanned"] {
+  border-style: dashed;
+}
+
+.task-status-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 32px;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .task-card-controls .item-action,
@@ -2032,12 +2187,16 @@ dialog::backdrop {
 
 .skill-mode-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #eef3f6;
+}
+
+.skill-mode-switch.two-option {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .skill-mode-switch button {
@@ -2060,6 +2219,11 @@ dialog::backdrop {
   gap: 13px;
 }
 
+.skill-create-fields {
+  display: grid;
+  gap: 13px;
+}
+
 .skill-dialog {
   width: min(560px, calc(100vw - 28px));
 }
@@ -2073,13 +2237,7 @@ dialog::backdrop {
 
 .skill-attach-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 86px;
-  gap: 8px;
-  align-items: end;
-}
-
-.skill-attach-row button {
-  min-height: 38px;
+  gap: 13px;
 }
 
 .skill-row {
@@ -2581,6 +2739,11 @@ menu button:first-child:hover {
 :root[data-theme="dark"] .task-card.drawer-open {
   border-color: var(--accent);
   box-shadow: inset 3px 0 0 var(--accent), 0 0 26px rgba(34, 211, 238, 0.16);
+}
+
+:root[data-theme="dark"] .task-status-control {
+  border-color: rgba(148, 163, 184, 0.28);
+  color: var(--text);
 }
 
 :root[data-theme="dark"] .task-lane-empty,
@@ -3132,6 +3295,14 @@ menu button:first-child:hover {
 
   .task-chat-actions button:first-child {
     flex: 1 1 auto;
+  }
+
+  .skill-mode-switch {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-mode-switch.two-option {
+    grid-template-columns: 1fr;
   }
 
   .composer {
