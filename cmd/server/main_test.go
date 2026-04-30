@@ -124,7 +124,7 @@ func TestRouteTargetsFromAgentReplyIgnoresHumanAndSelfMentions(t *testing.T) {
 		{ID: "agent_ada", Name: "Ada"},
 		{ID: "agent_lin", Name: "Lin"},
 		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
-		{ID: "agent_fullstack_dev", Name: "Fullstack Dev"},
+		{ID: "agent_fullstack_dev", Name: "FullstackDev"},
 	}
 
 	got := routeTargetsFromAgentReply("@ClaudeLocal can you validate this? @You wait for the final", "agent_lin", agents)
@@ -138,10 +138,10 @@ func TestRouteTargetsFromAgentReplyIgnoresHumanAndSelfMentions(t *testing.T) {
 		t.Fatalf("self/human-only mentions should not route, got %v", got)
 	}
 
-	got = routeTargetsFromAgentReply("@Fullstack%20Dev please verify this.", "agent_lin", agents)
+	got = routeTargetsFromAgentReply("@FullstackDev please verify this.", "agent_lin", agents)
 	want = []string{"agent_fullstack_dev"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("encoded space mention route targets = %v, want %v", got, want)
+		t.Fatalf("agent mention route targets = %v, want %v", got, want)
 	}
 
 	got = routeTargetsFromAgentReply("@Fullstack Dev should not route as a strict spaced mention.", "agent_lin", agents)
@@ -278,7 +278,7 @@ func TestRecentUnhandledAgentMentionRoutesSkipsHandledReply(t *testing.T) {
 }
 
 func TestRecentUnhandledAgentMentionRoutesBackfillsMissingTarget(t *testing.T) {
-	replyEnv := protocol.NewEnvelope("srv_local", "agent.reply", protocol.Actor{Kind: "agent", ID: "agent_fullstack", Name: "Fullstack Dev"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentReplyPayload{
+	replyEnv := protocol.NewEnvelope("srv_local", "agent.reply", protocol.Actor{Kind: "agent", ID: "agent_fullstack", Name: "FullstackDev"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentReplyPayload{
 		AgentID:     "agent_fullstack",
 		ChannelID:   "chan_general",
 		Text:        "@QA 已确认。@架构师 请最终确认。",
@@ -292,7 +292,7 @@ func TestRecentUnhandledAgentMentionRoutesBackfillsMissingTarget(t *testing.T) {
 		Agents: []protocol.Agent{
 			{ID: "agent_qa", Name: "QA"},
 			{ID: "agent_architect", Name: "架构师"},
-			{ID: "agent_fullstack", Name: "Fullstack Dev"},
+			{ID: "agent_fullstack", Name: "FullstackDev"},
 		},
 		Messages: []protocol.Message{{
 			ID:         "msg_1",

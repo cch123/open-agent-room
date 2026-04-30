@@ -1,6 +1,8 @@
 package store
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -54,6 +56,47 @@ func TestDeleteAgentUpdatesChannelDefaults(t *testing.T) {
 				t.Fatalf("channel %s still contains deleted agent", ch.ID)
 			}
 		}
+	}
+}
+
+func TestAddAgentRejectsSpaces(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.AddAgent("Fullstack Dev", "Builds features", "", "codex", "", nil, nil); err == nil {
+		t.Fatal("expected agent names with spaces to fail")
+	}
+}
+
+func TestLoadNormalizesExistingAgentNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	state := protocol.State{
+		Meta: protocol.Meta{ServerID: "srv_local"},
+		Agents: []protocol.Agent{
+			{ID: "agent_fullstack_dev", Name: "Fullstack Dev"},
+			{ID: "agent_fullstack", Name: "FullstackDev"},
+		},
+	}
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents := st.Snapshot().Agents
+	if got := agents[0].Name; got != "FullstackDev" {
+		t.Fatalf("first normalized agent name = %q", got)
+	}
+	if got := agents[1].Name; got != "FullstackDev2" {
+		t.Fatalf("duplicate normalized agent name = %q", got)
 	}
 }
 

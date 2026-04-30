@@ -822,7 +822,7 @@ function selectMention(agent) {
   if (!match) return;
   const before = els.input.value.slice(0, match.start);
   const after = els.input.value.slice(match.end);
-  const mention = `${mentionHandle(agent.name)} `;
+  const mention = `${displayMentionHandle(agent.name)} `;
   const value = `${before}${mention}${after}`;
   const cursor = before.length + mention.length;
   els.input.value = value;
@@ -1017,7 +1017,7 @@ function formatUnreadCount(count) {
 }
 
 async function sendComposerMessage() {
-  const text = els.input.value.trim();
+  const text = encodeMessageMentionsForWire(els.input.value.trim());
   if (!text) return;
   els.input.value = "";
   hideMentionSuggestions();
@@ -1032,7 +1032,7 @@ async function sendComposerMessage() {
 }
 
 async function sendTaskChatMessage() {
-  const text = els.taskChatInput.value.trim();
+  const text = encodeMessageMentionsForWire(els.taskChatInput.value.trim());
   const channelId = state.taskDrawerChannelId;
   if (!text || !channelId) return;
   els.taskChatInput.value = "";
@@ -1243,6 +1243,7 @@ els.skillTagFilter.addEventListener("change", () => {
 
 els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
 els.agentModel.addEventListener("change", updateCustomModelVisibility);
+els.agentName.addEventListener("input", sanitizeAgentNameField);
 els.markdownDialogClose.addEventListener("click", () => els.markdownDialog.close());
 
 function openAgentDialog() {
@@ -1252,7 +1253,8 @@ function openAgentDialog() {
 
 document.querySelector("#agent-create").addEventListener("click", async (event) => {
   event.preventDefault();
-  const name = els.agentName.value.trim();
+  sanitizeAgentNameField();
+  const name = normalizeAgentNameInput(els.agentName.value);
   const persona = els.agentPersona.value.trim();
   const systemPrompt = els.agentSystemPrompt.value.trim();
   const runtime = els.agentRuntime.value;
@@ -2141,7 +2143,7 @@ async function deleteUser(user) {
 
 function insertMention(name) {
   const suffix = els.input.value && !els.input.value.endsWith(" ") ? " " : "";
-  els.input.value += `${suffix}${mentionHandle(name)} `;
+  els.input.value += `${suffix}${displayMentionHandle(name)} `;
   els.input.focus();
 }
 
@@ -2158,7 +2160,7 @@ function insertTextAtCursor(text) {
 
 function insertTaskChatMention(name) {
   const suffix = els.taskChatInput.value && !els.taskChatInput.value.endsWith(" ") ? " " : "";
-  els.taskChatInput.value += `${suffix}${mentionHandle(name)} `;
+  els.taskChatInput.value += `${suffix}${displayMentionHandle(name)} `;
   state.taskDrawerDraft = els.taskChatInput.value;
   els.taskChatInput.focus();
 }
@@ -2173,6 +2175,21 @@ function insertTaskChatTextAtCursor(text) {
   els.taskChatInput.setSelectionRange(cursor, cursor);
   state.taskDrawerDraft = els.taskChatInput.value;
   els.taskChatInput.focus();
+}
+
+function sanitizeAgentNameField() {
+  const start = els.agentName.selectionStart || 0;
+  const before = els.agentName.value.slice(0, start);
+  const normalizedBefore = normalizeAgentNameInput(before);
+  const normalized = normalizeAgentNameInput(els.agentName.value);
+  if (normalized === els.agentName.value) return;
+  els.agentName.value = normalized;
+  const cursor = normalizedBefore.length;
+  els.agentName.setSelectionRange(cursor, cursor);
+}
+
+function normalizeAgentNameInput(value = "") {
+  return value.replace(/\s+/g, "");
 }
 
 function showHoverTooltip(target) {
@@ -2446,6 +2463,33 @@ function mentionHandle(name = "") {
   if (!value) return "@";
   if (/[\s@<>()\[\]{}.,，。:：;；!?！？%]/.test(value)) return `@${encodeURIComponent(value)}`;
   return `@${value}`;
+}
+
+function displayMentionHandle(name = "") {
+  const value = name.trim();
+  return value ? `@${value}` : "@";
+}
+
+function encodeMessageMentionsForWire(text = "") {
+  if (!state.snapshot || !text) return text;
+  const participants = [...(state.snapshot.users || []), ...(state.snapshot.agents || [])]
+    .filter((participant) => participant.name && mentionHandle(participant.name) !== displayMentionHandle(participant.name))
+    .sort((a, b) => b.name.length - a.name.length);
+  let next = text;
+  for (const participant of participants) {
+    const raw = displayMentionHandle(participant.name);
+    const encoded = mentionHandle(participant.name);
+    next = next.replace(rawMentionRegex(raw), (_match, prefix) => `${prefix}${encoded}`);
+  }
+  return next;
+}
+
+function rawMentionRegex(rawHandle) {
+  return new RegExp(`(^|[\\s([{])${escapeRegExp(rawHandle)}(?=$|[\\s<>()\\[\\]{}.,，。:：;；!?！？])`, "g");
+}
+
+function escapeRegExp(value = "") {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function mentionKey(value = "") {

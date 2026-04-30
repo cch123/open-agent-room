@@ -5,11 +5,11 @@ import "testing"
 func TestExtractMentions(t *testing.T) {
 	agents := []Agent{
 		{ID: "agent_ada", Name: "Ada"},
-		{ID: "agent_lin", Name: "Lin Huang"},
+		{ID: "agent_lin", Name: "LinHuang"},
 		{ID: "agent_architect", Name: "架构师"},
 	}
 
-	got := ExtractMentions("@Ada please pair with @Lin%20Huang and @架构师，确认一下", agents)
+	got := ExtractMentions("@Ada please pair with @LinHuang and @架构师，确认一下", agents)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 mentions, got %d: %#v", len(got), got)
 	}
@@ -19,12 +19,12 @@ func TestExtractMentions(t *testing.T) {
 
 	got = ExtractMentions("@lin-huang is not a strict match", agents)
 	if len(got) != 0 {
-		t.Fatalf("hyphenated display name should not match a spaced agent name: %#v", got)
+		t.Fatalf("spaced raw mention should not match an agent name: %#v", got)
 	}
 }
 
-func TestMentionHandleEncodesSpaces(t *testing.T) {
-	if got := MentionHandle("Fullstack Dev"); got != "@Fullstack%20Dev" {
+func TestMentionHandleForAgentNames(t *testing.T) {
+	if got := MentionHandle("FullstackDev"); got != "@FullstackDev" {
 		t.Fatalf("mention handle = %q", got)
 	}
 	if got := MentionHandle("架构师"); got != "@架构师" {

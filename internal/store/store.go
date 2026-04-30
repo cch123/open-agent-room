@@ -43,11 +43,16 @@ func (s *Store) load() error {
 	if s.state.Meta.ServerID == "" {
 		s.state.Meta.ServerID = "srv_local"
 	}
+	changed := s.ensureAgentNamesLocked()
 	s.ensureUserDefaultsLocked()
 	s.ensureAgentRuntimeDefaultsLocked()
 	s.ensureSkillLibraryLocked()
 	s.ensureChannelDefaultsLocked()
 	s.ensureTaskDefaultsLocked()
+	if changed {
+		s.touchLocked()
+		return s.saveLocked()
+	}
 	return nil
 }
 
@@ -507,6 +512,9 @@ func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string,
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return protocol.Agent{}, errors.New("agent name is required")
+	}
+	if normalizeAgentName(name) != name {
+		return protocol.Agent{}, errors.New("agent name cannot contain spaces")
 	}
 	skillIDs, err := addSkillsLocked(&s.state, skills)
 	if err != nil {
@@ -1252,11 +1260,37 @@ func (s *Store) ensureUserDefaultsLocked() {
 	s.state.Users = append([]protocol.User{{ID: s.state.CurrentUserID, Name: "You", Color: userColor(0)}}, s.state.Users...)
 }
 
+func (s *Store) ensureAgentNamesLocked() bool {
+	changed := false
+	used := make(map[string]bool, len(s.state.Agents))
+	for i := range s.state.Agents {
+		original := s.state.Agents[i].Name
+		next := normalizeAgentName(original)
+		if next == "" {
+			next = "Agent" + strconv.Itoa(i+1)
+		}
+		base := next
+		for suffix := 2; used[strings.ToLower(next)]; suffix++ {
+			next = base + strconv.Itoa(suffix)
+		}
+		used[strings.ToLower(next)] = true
+		if next != original {
+			s.state.Agents[i].Name = next
+			changed = true
+		}
+	}
+	return changed
+}
+
 func (s *Store) ensureAgentRuntimeDefaultsLocked() {
 	for i := range s.state.Agents {
 		s.state.Agents[i].Runtime = normalizeRuntime(s.state.Agents[i].Runtime)
 		s.state.Agents[i].Model = strings.TrimSpace(s.state.Agents[i].Model)
 	}
+}
+
+func normalizeAgentName(value string) string {
+	return strings.Join(strings.Fields(value), "")
 }
 
 func (s *Store) ensureSkillLibraryLocked() {

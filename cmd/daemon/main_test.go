@@ -51,7 +51,7 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 	request := runnerRequest{
 		EventType: "agent.message",
 		ChannelID: "chan_general",
-		Prompt:    "@Lin @Fullstack%20Dev compare options",
+		Prompt:    "@Lin @FullstackDev compare options",
 		Agent: protocol.Agent{
 			ID:   "agent_lin",
 			Name: "Lin",
@@ -59,7 +59,7 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 		PeerAgents: []protocol.Agent{
 			{
 				ID:      "agent_fullstack_dev",
-				Name:    "Fullstack Dev",
+				Name:    "FullstackDev",
 				Persona: "Local Claude runtime",
 			},
 		},
@@ -68,7 +68,7 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 	got := buildRunnerPrompt(request)
 	for _, want := range []string{
 		"Other agents addressed in the same user message:",
-		"@Fullstack%20Dev",
+		"@FullstackDev",
 		"Collaboration rule:",
 		"explicitly mention the other participant using the exact @handle listed above",
 		"under 8 lines",
@@ -203,11 +203,11 @@ func TestTaskRevocationDoesNotCancelDifferentChannel(t *testing.T) {
 func TestDemoReplyMentionsPeerAgents(t *testing.T) {
 	got := buildReply(
 		protocol.Agent{ID: "agent_lin", Name: "Lin"},
-		"@Lin @Fullstack%20Dev compare options",
+		"@Lin @FullstackDev compare options",
 		nil,
-		[]protocol.Agent{{ID: "agent_fullstack_dev", Name: "Fullstack Dev"}},
+		[]protocol.Agent{{ID: "agent_fullstack_dev", Name: "FullstackDev"}},
 	)
-	if !strings.Contains(got, "@Fullstack%20Dev") {
+	if !strings.Contains(got, "@FullstackDev") {
 		t.Fatalf("demo reply should mention peer agent:\n%s", got)
 	}
 }
