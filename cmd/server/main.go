@@ -1257,11 +1257,12 @@ func normalizeSkillImportRequest(r *http.Request, name, source, content string) 
 	content = strings.TrimSpace(content)
 	source = strings.TrimSpace(source)
 	if content == "" && source != "" {
-		fetchURL, sourceKind, err := resolveCloudSkillURL(source)
+		fetchURL, normalizedSource, sourceKind, err := resolveCloudSkillURL(source)
 		if err != nil {
 			return "", source, "", err
 		}
 		if fetchURL != "" {
+			source = normalizedSource
 			content, err = fetchRemoteSkillContent(r, fetchURL, sourceKind)
 			if err != nil {
 				return "", source, "", err
@@ -1308,28 +1309,59 @@ func fetchRemoteSkillContent(r *http.Request, source, sourceKind string) (string
 	return content, nil
 }
 
-func resolveCloudSkillURL(raw string) (string, string, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
+func resolveCloudSkillURL(raw string) (string, string, string, error) {
+	source, err := extractCloudSkillSource(raw)
 	if err != nil {
-		return "", "", fmt.Errorf("skill source URL is invalid: %w", err)
+		return "", "", "", err
+	}
+	u, err := url.Parse(source)
+	if err != nil {
+		return "", source, "", fmt.Errorf("skill source URL is invalid: %w", err)
 	}
 	if u.Scheme == "" || u.Host == "" {
-		return "", "", nil
+		return "", source, "", nil
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", "", errors.New("cloud import supports skills.sh and GitHub links")
+		return "", source, "", errors.New("cloud import supports skills.sh links, GitHub links, and npx commands containing one of those links")
 	}
 	switch strings.ToLower(u.Hostname()) {
 	case "skills.sh", "www.skills.sh":
-		return u.String(), "skills.sh", nil
+		return u.String(), u.String(), "skills.sh", nil
 	case "raw.githubusercontent.com":
-		return u.String(), "raw", nil
+		return u.String(), u.String(), "raw", nil
 	case "github.com":
 		rawURL, err := githubRawSkillURL(u)
-		return rawURL, "raw", err
+		return rawURL, u.String(), "raw", err
 	default:
-		return "", "", errors.New("cloud import supports skills.sh and GitHub links")
+		return "", source, "", errors.New("cloud import supports skills.sh links, GitHub links, and npx commands containing one of those links")
 	}
+}
+
+var cloudSkillURLRE = regexp.MustCompile(`https?://[^\s"'<>]+`)
+
+func extractCloudSkillSource(raw string) (string, error) {
+	source := strings.TrimSpace(raw)
+	if source == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		return strings.Trim(source, `"'`), nil
+	}
+	if !strings.HasPrefix(source, "npx ") && !strings.HasPrefix(source, "npx\t") && source != "npx" {
+		return source, nil
+	}
+	for _, match := range cloudSkillURLRE.FindAllString(source, -1) {
+		candidate := strings.TrimRight(strings.Trim(match, `"'`), ".,)")
+		u, err := url.Parse(candidate)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			continue
+		}
+		switch strings.ToLower(u.Hostname()) {
+		case "skills.sh", "www.skills.sh", "github.com", "raw.githubusercontent.com":
+			return candidate, nil
+		}
+	}
+	return "", errors.New("npx skill import command must contain a skills.sh or GitHub link")
 }
 
 func githubRawSkillURL(u *url.URL) (string, error) {

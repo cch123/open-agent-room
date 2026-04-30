@@ -344,6 +344,36 @@ func TestHandleSkillsImportsSkillsSHPage(t *testing.T) {
 	}
 }
 
+func TestHandleSkillsParsesNPXInstallCommand(t *testing.T) {
+	withSkillImportClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "https://skills.sh/wshobson/agents/architecture-patterns" {
+			t.Fatalf("fetch URL = %s", r.URL.String())
+		}
+		body := `<!doctype html><html><body><div>SKILL.md</div><div><h1>Architecture Patterns</h1><p>Use clean boundaries.</p></div></body></html>`
+		return textResponse(http.StatusOK, body), nil
+	}))
+
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"source":"npx -y @skills/cli install https://skills.sh/wshobson/agents/architecture-patterns"}`))
+	rec := httptest.NewRecorder()
+
+	a.handleSkills(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var skill protocol.AgentSkill
+	if err := json.NewDecoder(rec.Body).Decode(&skill); err != nil {
+		t.Fatal(err)
+	}
+	if skill.Source != "https://skills.sh/wshobson/agents/architecture-patterns" {
+		t.Fatalf("source = %q, want normalized URL", skill.Source)
+	}
+	if skill.Name != "Architecture Patterns" {
+		t.Fatalf("name = %q, want derived heading", skill.Name)
+	}
+}
+
 func TestHandleSkillsReportsSourceFetchFailure(t *testing.T) {
 	withSkillImportClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return textResponse(http.StatusNotFound, "missing"), nil

@@ -1019,7 +1019,7 @@ document.querySelector("#skill-import").addEventListener("click", async (event) 
     return;
   }
   if (isCloudImport && !isSupportedCloudSkillURL(source)) {
-    setSkillError("Cloud import supports skills.sh links and GitHub links.");
+    setSkillError("Cloud import supports skills.sh links, GitHub links, and npx commands containing one of those links.");
     els.skillSource.focus();
     return;
   }
@@ -1234,9 +1234,9 @@ function updateSkillCreateModeUI() {
   }
   els.skillLocalFields.hidden = isCloudImport;
   els.skillNameLabel.textContent = isCloudImport ? "Skill name (optional)" : "Skill name";
-  els.skillSourceLabel.textContent = isCloudImport ? "Cloud URL" : "Source note";
+  els.skillSourceLabel.textContent = isCloudImport ? "Cloud URL or npx command" : "Source note";
   els.skillSource.placeholder = isCloudImport
-    ? "https://skills.sh/owner/repo/skill or https://github.com/owner/repo/blob/main/path/SKILL.md"
+    ? "https://skills.sh/... or npx ... https://github.com/owner/repo/blob/main/path/SKILL.md"
     : "SKILL.md or internal note";
   const action = state.skillDialogMode === "global"
     ? (isCloudImport ? "Import" : "Create")
@@ -1763,13 +1763,35 @@ function parseSkillTags(text = "") {
 }
 
 function isSupportedCloudSkillURL(value = "") {
+  const source = extractCloudSkillURL(value);
+  if (!source) return false;
   try {
-    const url = new URL(value.trim());
+    const url = new URL(source);
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
     return ["skills.sh", "www.skills.sh", "github.com", "raw.githubusercontent.com"].includes(url.hostname.toLowerCase());
   } catch {
     return false;
   }
+}
+
+function extractCloudSkillURL(value = "") {
+  const source = value.trim();
+  if (!source) return "";
+  if (source.startsWith("http://") || source.startsWith("https://")) return source.replace(/^['"]|['"]$/g, "");
+  if (!source.startsWith("npx ") && !source.startsWith("npx\t") && source !== "npx") return source;
+  const matches = source.match(/https?:\/\/[^\s"'<>]+/g) || [];
+  for (const match of matches) {
+    const candidate = match.replace(/^['"]|['"]$/g, "").replace(/[.,)]+$/g, "");
+    try {
+      const url = new URL(candidate);
+      if (["skills.sh", "www.skills.sh", "github.com", "raw.githubusercontent.com"].includes(url.hostname.toLowerCase())) {
+        return candidate;
+      }
+    } catch {
+      // Keep scanning the command for another URL.
+    }
+  }
+  return "";
 }
 
 function updateCustomModelVisibility() {
