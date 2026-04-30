@@ -1,10 +1,17 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/xargin/open-agent-room/internal/protocol"
+	"github.com/xargin/open-agent-room/internal/realtime"
+	"github.com/xargin/open-agent-room/internal/store"
 )
 
 func TestResolveAgentRoutesKeepsSingleAgentContext(t *testing.T) {
@@ -274,5 +281,65 @@ func TestRecentUnhandledAgentMentionRoutesSkipsTrimmedReplyEvent(t *testing.T) {
 	got := recentUnhandledAgentMentionRoutes(state, 30)
 	if len(got) != 0 {
 		t.Fatalf("trimmed reply event should not backfill, got %v", got)
+	}
+}
+
+func TestHandleSkillsFetchesContentFromSourceURL(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/markdown")
+		_, _ = w.Write([]byte("# Architecture patterns\n\nPrefer small contexts."))
+	}))
+	defer source.Close()
+
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"name":"Architecture","source":"`+source.URL+`"}`))
+	rec := httptest.NewRecorder()
+
+	a.handleSkills(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var skill protocol.AgentSkill
+	if err := json.NewDecoder(rec.Body).Decode(&skill); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(skill.Content, "Prefer small contexts.") {
+		t.Fatalf("content = %q, want fetched source content", skill.Content)
+	}
+}
+
+func TestHandleSkillsReportsSourceFetchFailure(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "missing", http.StatusNotFound)
+	}))
+	defer source.Close()
+
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"name":"Missing","source":"`+source.URL+`"}`))
+	rec := httptest.NewRecorder()
+
+	a.handleSkills(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "HTTP 404") {
+		t.Fatalf("body = %s, want HTTP 404 error", rec.Body.String())
+	}
+}
+
+func newTestApp(t *testing.T) *app {
+	t.Helper()
+	st, err := store.New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &app{
+		store:        st,
+		hub:          realtime.NewHub(),
+		daemons:      newDaemonRegistry(),
+		token:        "test-token",
+		activeAgents: make(map[string]string),
 	}
 }

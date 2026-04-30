@@ -924,8 +924,8 @@ document.querySelector("#skill-import").addEventListener("click", async (event) 
     els.skillName.focus();
     return;
   }
-  if (!content) {
-    setSkillError("Add skill content by choosing a .md/.txt file or pasting instructions.");
+  if (!content && !isHTTPURL(source)) {
+    setSkillError("Add skill content by choosing a .md/.txt file, pasting instructions, or entering an http(s) Source URL.");
     els.skillContent.focus();
     return;
   }
@@ -1344,6 +1344,15 @@ function parseSkillTags(text = "") {
     if (tag && !tags.includes(tag)) tags.push(tag.slice(0, 32).replace(/-+$/g, ""));
   }
   return tags.filter(Boolean);
+}
+
+function isHTTPURL(value = "") {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function updateCustomModelVisibility() {

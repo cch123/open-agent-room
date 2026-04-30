@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -17,7 +20,12 @@ import (
 	"github.com/xargin/open-agent-room/internal/webui"
 )
 
-const maxAgentThreadDepth = 6
+const (
+	maxAgentThreadDepth       = 6
+	maxRemoteSkillContentSize = 64 * 1024
+)
+
+var skillImportHTTPClient = &http.Client{Timeout: 8 * time.Second}
 
 type app struct {
 	store        *store.Store
@@ -340,6 +348,12 @@ func (a *app) handleSkills(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	content, err := resolveSkillImportContent(r, req.Source, req.Content)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	req.Content = content
 	skill, err := a.store.AddSkill(req.Name, req.Source, req.Content, req.Tags)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -457,6 +471,11 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(req.SkillID) != "" {
 			skill, err = a.store.AttachAgentSkill(agentID, req.SkillID)
 		} else {
+			req.Content, err = resolveSkillImportContent(r, req.Source, req.Content)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 			skill, err = a.store.AddAgentSkill(agentID, req.Name, req.Source, req.Content, req.Tags)
 			eventType = "agent.skill.created_and_attached"
 		}
@@ -1092,6 +1111,47 @@ func (a *app) normalizeEnvelope(env protocol.Envelope) protocol.Envelope {
 
 func (a *app) errorEnvelope(message, causationID string) protocol.Envelope {
 	return protocol.NewEnvelope(a.store.ServerID(), "error", protocol.Actor{Kind: "system", ID: "system"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]string{"message": message}, causationID)
+}
+
+func resolveSkillImportContent(r *http.Request, source, content string) (string, error) {
+	content = strings.TrimSpace(content)
+	source = strings.TrimSpace(source)
+	if content != "" || !isHTTPSourceURL(source) {
+		return content, nil
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, source, nil)
+	if err != nil {
+		return "", fmt.Errorf("skill source URL is invalid: %w", err)
+	}
+	req.Header.Set("Accept", "text/markdown,text/plain,text/*;q=0.9,*/*;q=0.5")
+	res, err := skillImportHTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("could not fetch skill source: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", fmt.Errorf("could not fetch skill source: HTTP %d", res.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxRemoteSkillContentSize+1))
+	if err != nil {
+		return "", fmt.Errorf("could not read skill source: %w", err)
+	}
+	if len(body) > maxRemoteSkillContentSize {
+		return "", errors.New("skill source content is too large")
+	}
+	content = strings.TrimSpace(string(body))
+	if content == "" {
+		return "", errors.New("skill source returned empty content")
+	}
+	return content, nil
+}
+
+func isHTTPSourceURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func (a *app) broadcast() {
