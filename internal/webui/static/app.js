@@ -572,6 +572,7 @@ function openMarkdownDocument(message, documentText = message.text) {
   els.markdownDialogTitle.textContent = markdownDocumentTitle(documentText);
   els.markdownDialogMeta.textContent = `${message.authorName} · ${formatTime(message.timestamp)}`;
   els.markdownDialogBody.innerHTML = renderMarkdown(documentText);
+  els.markdownDialogBody.scrollTop = 0;
   els.markdownDialog.showModal();
 }
 
@@ -1597,7 +1598,7 @@ function agentHasSkill(agent, skillID) {
 }
 
 function skillExcerpt(content = "") {
-  const compacted = cleanMarkdownInline(content.replace(/\s+/g, " "));
+  const compacted = cleanMarkdownInline(stripSkillFileLabel(content).replace(/\s+/g, " "));
   return compacted.slice(0, 180) || "No content preview.";
 }
 
@@ -1611,7 +1612,8 @@ function openSkillContent(skill, meta = "Library skill") {
   els.markdownDialogTitle.textContent = skill.name || "Imported skill";
   const tags = (skill.tags || []).map((tag) => `#${tag}`).join(" ");
   els.markdownDialogMeta.textContent = `${meta} · ${skill.source || "manual import"}${tags ? ` · ${tags}` : ""}`;
-  els.markdownDialogBody.innerHTML = renderMarkdown(skill.content || "");
+  els.markdownDialogBody.innerHTML = renderMarkdown(normalizeSkillPreviewMarkdown(skill.content || ""));
+  els.markdownDialogBody.scrollTop = 0;
   els.markdownDialog.showModal();
 }
 
@@ -1995,13 +1997,138 @@ function profileAnchorAttrs(kind, value) {
   return `data-profile-kind="${escapeHTML(kind)}" data-profile-id="${escapeHTML(value.id || "")}" data-profile-name="${escapeHTML(value.name || "")}"`;
 }
 
+function normalizeSkillPreviewMarkdown(text = "") {
+  const lines = stripSkillFileLabel(text).replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.trim().startsWith("```")) {
+      out.push(line);
+      index += 1;
+      while (index < lines.length) {
+        out.push(lines[index]);
+        if (lines[index].trim().startsWith("```")) {
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      continue;
+    }
+
+    if (startsTreeBlock(lines, index)) {
+      index = appendAutoFencedBlock(out, lines, index, isTreeBlockContinuation);
+      continue;
+    }
+
+    if (startsLooseCodeBlock(lines, index)) {
+      index = appendAutoFencedBlock(out, lines, index, isLooseCodeBlockContinuation);
+      continue;
+    }
+
+    out.push(line);
+    index += 1;
+  }
+
+  return out.join("\n");
+}
+
+function stripSkillFileLabel(text = "") {
+  return text.replace(/^\s*>?\s*SKILL\.md\s*\n+/i, "");
+}
+
+function appendAutoFencedBlock(out, lines, start, continues) {
+  const block = [];
+  let index = start;
+  while (index < lines.length && continues(lines, index)) {
+    block.push(lines[index]);
+    index += 1;
+  }
+  while (block.length && !block[0].trim()) block.shift();
+  while (block.length && !block[block.length - 1].trim()) block.pop();
+  if (block.length === 0) return index;
+  if (out.length && out[out.length - 1].trim()) out.push("");
+  out.push("```text", ...block, "```");
+  if (index < lines.length && lines[index].trim()) out.push("");
+  return index;
+}
+
+function startsTreeBlock(lines, index) {
+  const trimmed = lines[index]?.trim() || "";
+  const next = lines[index + 1] || "";
+  return isTreeLine(lines[index] || "") || (isDirectoryRootLine(trimmed) && isTreeLine(next));
+}
+
+function isTreeBlockContinuation(lines, index) {
+  const line = lines[index] || "";
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  return isTreeLine(line) || isDirectoryRootLine(trimmed);
+}
+
+function isTreeLine(line = "") {
+  return /^\s*[│├└╭╰┌└┬┴─|]/.test(line);
+}
+
+function isDirectoryRootLine(trimmed = "") {
+  return /^[\w.-]+\/(?:\s+#.*)?$/.test(trimmed);
+}
+
+function startsLooseCodeBlock(lines, index) {
+  if (!isLooseCodeStart(lines[index] || "")) return false;
+  let codeSignals = 0;
+  for (let offset = 0; offset < 8 && index + offset < lines.length; offset += 1) {
+    if (isLooseCodeLine(lines[index + offset] || "")) codeSignals += 1;
+  }
+  return codeSignals >= 3;
+}
+
+function isLooseCodeBlockContinuation(lines, index) {
+  const line = lines[index] || "";
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  if (/^#{2,6}\s+/.test(trimmed)) return false;
+  if (/^[-*]\s+\S/.test(trimmed) || /^\d+\.\s+\S/.test(trimmed)) return false;
+  return true;
+}
+
+function isLooseCodeStart(line = "") {
+  const trimmed = line.trim();
+  return isCodeFileComment(trimmed) || /^(from|import|class|def|async\s+def|@dataclass|@abstractmethod)\b/.test(trimmed);
+}
+
+function isLooseCodeLine(line = "") {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  return (
+    isCodeFileComment(trimmed) ||
+    /^(from|import|class|def|async\s+def|if|for|while|try|except|with|async\s+with|return|raise|await|@dataclass|@abstractmethod|@router)\b/.test(trimmed) ||
+    /^[A-Za-z_][\w.]*\s*[:=]/.test(trimmed) ||
+    /^self\./.test(trimmed) ||
+    /^[})\]]/.test(trimmed)
+  );
+}
+
+function isCodeFileComment(trimmed = "") {
+  return /^#\s*\S+\.(py|go|js|jsx|ts|tsx|rs|java|rb|php|swift|kt|cs|cpp|c|h|sql|ya?ml|json|toml|md)\b/i.test(trimmed);
+}
+
 function renderMarkdown(text = "") {
   const lines = text.split("\n");
   const html = [];
   let inCode = false;
   let codeLines = [];
   let listType = "";
+  let paragraphLines = [];
 
+  const closeParagraph = () => {
+    if (paragraphLines.length) {
+      html.push(`<p>${inlineMarkdown(paragraphLines.join(" "))}</p>`);
+      paragraphLines = [];
+    }
+  };
   const closeList = () => {
     if (listType) {
       html.push(`</${listType}>`);
@@ -2010,6 +2137,7 @@ function renderMarkdown(text = "") {
   };
   const openList = (type) => {
     if (listType === type) return;
+    closeParagraph();
     closeList();
     html.push(`<${type}>`);
     listType = type;
@@ -2020,8 +2148,10 @@ function renderMarkdown(text = "") {
     inCode = false;
   };
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     if (line.trim().startsWith("```")) {
+      closeParagraph();
       closeList();
       if (inCode) closeCode();
       else inCode = true;
@@ -2034,51 +2164,69 @@ function renderMarkdown(text = "") {
 
     const trimmed = line.trim();
     if (!trimmed) {
+      closeParagraph();
+      if (listType && lineListType(nextNonEmptyMarkdownLine(lines, index + 1)) === listType) continue;
       closeList();
       continue;
     }
 
     const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
     if (heading) {
+      closeParagraph();
       closeList();
       const level = Math.min(heading[1].length + 1, 4);
       html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
       continue;
     }
 
-    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
-    if (bullet) {
-      openList("ul");
-      html.push(`<li>${inlineMarkdown(bullet[1])}</li>`);
-      continue;
-    }
-
-    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
-    if (ordered) {
-      openList("ol");
-      html.push(`<li>${inlineMarkdown(ordered[1])}</li>`);
+    const itemType = lineListType(trimmed);
+    if (itemType) {
+      openList(itemType);
+      html.push(`<li>${inlineMarkdown(listItemText(trimmed))}</li>`);
       continue;
     }
 
     if (trimmed.startsWith(">")) {
+      closeParagraph();
       closeList();
       html.push(`<blockquote>${inlineMarkdown(trimmed.replace(/^>\s?/, ""))}</blockquote>`);
       continue;
     }
 
     if (/^\|.+\|$/.test(trimmed)) {
+      closeParagraph();
       closeList();
       html.push(`<pre class="markdown-table">${escapeHTML(trimmed)}</pre>`);
       continue;
     }
 
     closeList();
-    html.push(`<p>${inlineMarkdown(trimmed)}</p>`);
+    paragraphLines.push(trimmed);
   }
 
+  closeParagraph();
   closeList();
   if (inCode) closeCode();
   return html.join("");
+}
+
+function nextNonEmptyMarkdownLine(lines, start) {
+  for (let index = start; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+function lineListType(line = "") {
+  const trimmed = line.trim();
+  if (/^[-*]\s+\S/.test(trimmed)) return "ul";
+  if (/^\d+\.\s+\S/.test(trimmed)) return "ol";
+  return "";
+}
+
+function listItemText(line = "") {
+  return line.trim().replace(/^[-*]\s+/, "").replace(/^\d+\.\s+/, "");
 }
 
 function inlineMarkdown(text = "") {

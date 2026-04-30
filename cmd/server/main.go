@@ -1422,6 +1422,9 @@ func extractSkillsSHContent(body string) (string, error) {
 		return strings.TrimSpace(body), nil
 	}
 	start := strings.Index(body, ">SKILL.md<")
+	if start != -1 {
+		start += 1
+	}
 	if start == -1 {
 		start = strings.Index(body, "SKILL.md")
 	}
@@ -1446,6 +1449,20 @@ func looksLikeHTML(value string) bool {
 }
 
 func htmlToMarkdownText(value string) string {
+	for _, noisyTag := range []string{"script", "style", "svg"} {
+		value = regexp.MustCompile(`(?is)<`+noisyTag+`[^>]*>.*?</`+noisyTag+`>`).ReplaceAllString(value, "")
+	}
+	value = regexp.MustCompile(`(?is)<pre[^>]*>(.*?)</pre>`).ReplaceAllStringFunc(value, func(match string) string {
+		parts := regexp.MustCompile(`(?is)<pre[^>]*>(.*?)</pre>`).FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return "\n"
+		}
+		code := strings.Trim(htmlFragmentText(parts[1], true), "\n")
+		if code == "" {
+			return "\n"
+		}
+		return "\n\n```text\n" + code + "\n```\n\n"
+	})
 	replacements := []struct {
 		re   *regexp.Regexp
 		repl string
@@ -1461,7 +1478,7 @@ func htmlToMarkdownText(value string) string {
 		{regexp.MustCompile(`(?i)<p[^>]*>`), "\n\n"},
 		{regexp.MustCompile(`(?i)</p>`), "\n"},
 		{regexp.MustCompile(`(?i)<br\s*/?>`), "\n"},
-		{regexp.MustCompile(`(?i)</?(pre|code)[^>]*>`), "\n"},
+		{regexp.MustCompile(`(?is)<code[^>]*>(.*?)</code>`), "`$1`"},
 	}
 	for _, replacement := range replacements {
 		value = replacement.re.ReplaceAllString(value, replacement.repl)
@@ -1471,7 +1488,20 @@ func htmlToMarkdownText(value string) string {
 	lines := strings.Split(value, "\n")
 	out := make([]string, 0, len(lines))
 	blank := false
+	inFence := false
 	for _, line := range lines {
+		line = strings.TrimRight(line, " \t")
+		if strings.TrimSpace(line) == "```text" || strings.TrimSpace(line) == "```" {
+			out = append(out, strings.TrimSpace(line))
+			inFence = !inFence
+			blank = false
+			continue
+		}
+		if inFence {
+			out = append(out, line)
+			blank = false
+			continue
+		}
 		line = strings.TrimSpace(line)
 		if line == "" {
 			if !blank && len(out) > 0 {
@@ -1484,6 +1514,16 @@ func htmlToMarkdownText(value string) string {
 		blank = false
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func htmlFragmentText(value string, preserveWhitespace bool) string {
+	value = regexp.MustCompile(`(?i)<br\s*/?>`).ReplaceAllString(value, "\n")
+	value = regexp.MustCompile(`(?s)<[^>]+>`).ReplaceAllString(value, "")
+	value = html.UnescapeString(value)
+	if preserveWhitespace {
+		return strings.ReplaceAll(value, "\u00a0", " ")
+	}
+	return strings.TrimSpace(value)
 }
 
 func deriveSkillName(source, content string) string {

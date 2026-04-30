@@ -359,7 +359,9 @@ func TestHandleSkillsImportsSkillsSHPage(t *testing.T) {
 		if r.URL.String() != "https://skills.sh/wshobson/agents/architecture-patterns" {
 			t.Fatalf("fetch URL = %s", r.URL.String())
 		}
-		body := `<!doctype html><html><body><div>SKILL.md</div><div><h1>Architecture Patterns</h1><p>Use clean boundaries.</p><ul><li>Keep domain pure</li></ul></div><script>ignored</script></body></html>`
+		body := `<!doctype html><html><body><div>SKILL.md</div><div><h1>Architecture Patterns</h1><p>Use clean boundaries.</p><ul><li>Keep domain pure</li></ul><pre>app/
+  domain/
+    user.py</pre></div><script>ignored</script></body></html>`
 		return textResponse(http.StatusOK, body), nil
 	}))
 
@@ -379,8 +381,14 @@ func TestHandleSkillsImportsSkillsSHPage(t *testing.T) {
 	if skill.Name != "Architecture Patterns" {
 		t.Fatalf("name = %q, want derived skills.sh heading", skill.Name)
 	}
+	if strings.Contains(skill.Content, "SKILL.md") {
+		t.Fatalf("content = %q, should not keep skills.sh file label", skill.Content)
+	}
 	if !strings.Contains(skill.Content, "# Architecture Patterns") || !strings.Contains(skill.Content, "Use clean boundaries.") {
 		t.Fatalf("content = %q, want extracted skills.sh markdown", skill.Content)
+	}
+	if !strings.Contains(skill.Content, "```text\napp/\n  domain/\n    user.py\n```") {
+		t.Fatalf("content = %q, want fenced code block from skills.sh pre", skill.Content)
 	}
 }
 
