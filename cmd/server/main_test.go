@@ -124,6 +124,7 @@ func TestRouteTargetsFromAgentReplyIgnoresHumanAndSelfMentions(t *testing.T) {
 		{ID: "agent_ada", Name: "Ada"},
 		{ID: "agent_lin", Name: "Lin"},
 		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+		{ID: "agent_fullstack_dev", Name: "Fullstack Dev"},
 	}
 
 	got := routeTargetsFromAgentReply("@ClaudeLocal can you validate this? @You wait for the final", "agent_lin", agents)
@@ -135,6 +136,17 @@ func TestRouteTargetsFromAgentReplyIgnoresHumanAndSelfMentions(t *testing.T) {
 	got = routeTargetsFromAgentReply("@Lin I can handle this myself. @You please review.", "agent_lin", agents)
 	if len(got) != 0 {
 		t.Fatalf("self/human-only mentions should not route, got %v", got)
+	}
+
+	got = routeTargetsFromAgentReply("@Fullstack%20Dev please verify this.", "agent_lin", agents)
+	want = []string{"agent_fullstack_dev"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("encoded space mention route targets = %v, want %v", got, want)
+	}
+
+	got = routeTargetsFromAgentReply("@Fullstack Dev should not route as a strict spaced mention.", "agent_lin", agents)
+	if len(got) != 0 {
+		t.Fatalf("raw spaced mention should not route, got %v", got)
 	}
 }
 
@@ -322,6 +334,73 @@ func TestRecentUnhandledAgentMentionRoutesSkipsTrimmedReplyEvent(t *testing.T) {
 	got := recentUnhandledAgentMentionRoutes(state, 30)
 	if len(got) != 0 {
 		t.Fatalf("trimmed reply event should not backfill, got %v", got)
+	}
+}
+
+func TestTaskOwnerStartMovesTodoTaskToDoing(t *testing.T) {
+	a := newTestApp(t)
+	agent, err := a.store.AddAgent("Owner", "Owns tasks", "", "codex", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := a.store.AddTask("Implement owner handoff", "", "lane_todo", "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind, id := "agent", agent.ID
+	task, err = a.store.UpdateTask(task.ID, nil, nil, nil, &kind, &id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := a.startTaskForOwner(task, "evt_test", false)
+	if started.LaneID != "lane_doing" {
+		t.Fatalf("task lane = %s, want lane_doing", started.LaneID)
+	}
+}
+
+func TestAgentReviewMarkerMovesOwnedTaskToReviewAndIsHidden(t *testing.T) {
+	a := newTestApp(t)
+	agent, err := a.store.AddAgent("Owner", "Owns tasks", "", "codex", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := a.store.AddTask("Review handoff", "", "lane_doing", "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind, id := "agent", agent.ID
+	task, err = a.store.UpdateTask(task.ID, nil, nil, nil, &kind, &id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, ch, _, err := a.store.CreateTaskChannel(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := protocol.AgentReplyPayload{
+		AgentID:   agent.ID,
+		ChannelID: ch.ID,
+		Text:      "Implementation is ready for review.\nTASK_STATUS: review",
+	}
+	env := protocol.NewEnvelope("srv_local", "agent.reply", protocol.Actor{Kind: "agent", ID: agent.ID, Name: agent.Name}, protocol.Scope{Kind: "channel", ID: ch.ID}, payload, "")
+	a.appendAgentReply(payload, env, "")
+
+	snapshot := a.store.Snapshot()
+	updated, ok := taskByID(snapshot.Tasks, task.ID)
+	if !ok {
+		t.Fatal("task disappeared")
+	}
+	if updated.LaneID != "lane_review" {
+		t.Fatalf("task lane = %s, want lane_review", updated.LaneID)
+	}
+	messages := a.store.RecentMessages(ch.ID, 1)
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(messages))
+	}
+	if strings.Contains(messages[0].Text, "TASK_STATUS") {
+		t.Fatalf("status marker leaked into chat: %q", messages[0].Text)
 	}
 }
 

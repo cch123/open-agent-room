@@ -112,12 +112,36 @@
               <span>Workspace work queue and discussion channels</span>
             </div>
             <div class="task-toolbar-actions">
-              <button id="task-lane-add" type="button">Add Lane</button>
+              <button id="task-lane-add" type="button">Manage Lanes</button>
               <button id="task-manager-add" type="button">Create Task</button>
             </div>
           </div>
           <div id="task-board" class="task-board" aria-label="Task status board"></div>
         </section>
+
+        <aside id="task-chat-drawer" class="task-chat-drawer" aria-label="Task discussion drawer" hidden>
+          <div class="task-chat-shell">
+            <header class="task-chat-header">
+              <div>
+                <span>Task Discussion</span>
+                <strong id="task-chat-title"></strong>
+                <small id="task-chat-meta"></small>
+              </div>
+              <div class="task-chat-actions">
+                <button id="task-chat-open-channel" type="button">Open Channel</button>
+                <button id="task-chat-close" type="button" aria-label="Close task discussion">x</button>
+              </div>
+            </header>
+            <div id="task-chat-messages" class="task-chat-messages" aria-live="polite"></div>
+            <form id="task-chat-composer" class="task-chat-composer">
+              <div id="task-chat-mentions" class="mention-row"></div>
+              <div class="task-chat-compose-row">
+                <textarea id="task-chat-input" rows="3" placeholder="Message this task channel..." required></textarea>
+                <button type="submit">Send</button>
+              </div>
+            </form>
+          </div>
+        </aside>
 
         <form id="composer" class="composer">
           <div id="mention-row" class="mention-row"></div>
@@ -138,7 +162,7 @@
             <span id="daemon-count">0 online</span>
           </div>
           <code class="command">go run ./cmd/daemon</code>
-          <p class="muted">The daemon receives `agent.message` and `task.assigned`, then routes work to each agent's Codex, Claude, or demo runtime.</p>
+          <p class="muted">The daemon receives `agent.message`, `task.assigned`, `task.updated`, and `task.revoked`, then routes or cancels work for each agent's Codex, Claude, or demo runtime.</p>
         </section>
 
         <section class="panel assign-panel">
@@ -239,7 +263,7 @@
 
     <dialog id="task-dialog">
       <form method="dialog" class="dialog-body">
-        <h2>Create Task</h2>
+        <h2 id="task-dialog-title">Create Task</h2>
         <label>
           Title
           <input id="task-title" autocomplete="off" placeholder="Review channel routing edge cases" />
@@ -261,14 +285,15 @@
 
     <dialog id="task-lane-dialog">
       <form method="dialog" class="dialog-body">
-        <h2>Add Lane</h2>
+        <h2>Manage Lanes</h2>
+        <div id="task-lane-list" class="task-lane-manager-list"></div>
         <label>
-          Name
+          Add lane
           <input id="task-lane-name" autocomplete="off" placeholder="Blocked" />
         </label>
         <menu>
-          <button value="cancel">Cancel</button>
-          <button id="task-lane-create" value="default">Add</button>
+          <button value="cancel">Close</button>
+          <button id="task-lane-create" type="button">Add Lane</button>
         </menu>
       </form>
     </dialog>

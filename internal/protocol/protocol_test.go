@@ -9,12 +9,26 @@ func TestExtractMentions(t *testing.T) {
 		{ID: "agent_architect", Name: "架构师"},
 	}
 
-	got := ExtractMentions("@Ada please pair with @lin-huang and @架构师，确认一下", agents)
+	got := ExtractMentions("@Ada please pair with @Lin%20Huang and @架构师，确认一下", agents)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 mentions, got %d: %#v", len(got), got)
 	}
 	if got[0] != "agent_ada" || got[1] != "agent_lin" || got[2] != "agent_architect" {
 		t.Fatalf("unexpected mention order: %#v", got)
+	}
+
+	got = ExtractMentions("@lin-huang is not a strict match", agents)
+	if len(got) != 0 {
+		t.Fatalf("hyphenated display name should not match a spaced agent name: %#v", got)
+	}
+}
+
+func TestMentionHandleEncodesSpaces(t *testing.T) {
+	if got := MentionHandle("Fullstack Dev"); got != "@Fullstack%20Dev" {
+		t.Fatalf("mention handle = %q", got)
+	}
+	if got := MentionHandle("架构师"); got != "@架构师" {
+		t.Fatalf("mention handle without spaces = %q", got)
 	}
 }
 

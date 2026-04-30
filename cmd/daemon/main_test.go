@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/xargin/open-agent-room/internal/protocol"
@@ -49,15 +51,15 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 	request := runnerRequest{
 		EventType: "agent.message",
 		ChannelID: "chan_general",
-		Prompt:    "@Lin @ClaudeLocal compare options",
+		Prompt:    "@Lin @Fullstack%20Dev compare options",
 		Agent: protocol.Agent{
 			ID:   "agent_lin",
 			Name: "Lin",
 		},
 		PeerAgents: []protocol.Agent{
 			{
-				ID:      "agent_claudelocal",
-				Name:    "ClaudeLocal",
+				ID:      "agent_fullstack_dev",
+				Name:    "Fullstack Dev",
 				Persona: "Local Claude runtime",
 			},
 		},
@@ -66,9 +68,9 @@ func TestBuildRunnerPromptIncludesPeerAgentMentions(t *testing.T) {
 	got := buildRunnerPrompt(request)
 	for _, want := range []string{
 		"Other agents addressed in the same user message:",
-		"@ClaudeLocal",
+		"@Fullstack%20Dev",
 		"Collaboration rule:",
-		"explicitly mention the other participant with @Name",
+		"explicitly mention the other participant using the exact @handle listed above",
 		"under 8 lines",
 		"Use plain chat only during peer discussion",
 		"no Markdown headings",
@@ -114,14 +116,93 @@ func TestBuildRunnerPromptIncludesImportedSkills(t *testing.T) {
 	}
 }
 
+func TestBuildRunnerPromptIncludesTaskWorkflowForAssignedTasks(t *testing.T) {
+	request := runnerRequest{
+		EventType: "task.assigned",
+		ChannelID: "chan_task",
+		Prompt:    "Ship the implementation",
+		Agent: protocol.Agent{
+			ID:   "agent_owner",
+			Name: "Owner",
+		},
+	}
+
+	got := buildRunnerPrompt(request)
+	for _, want := range []string{
+		"Task workflow:",
+		"moved it to Doing",
+		"TASK_STATUS: review",
+		"Never mark the task Done",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildRunnerPromptIncludesTaskWorkflowForUpdatedTasks(t *testing.T) {
+	request := runnerRequest{
+		EventType: "task.updated",
+		ChannelID: "chan_task",
+		Prompt:    "The acceptance criteria changed",
+		Agent: protocol.Agent{
+			ID:   "agent_owner",
+			Name: "Owner",
+		},
+	}
+
+	got := buildRunnerPrompt(request)
+	for _, want := range []string{
+		"Task update workflow:",
+		"still the owner",
+		"latest source of truth",
+		"TASK_STATUS: review",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTaskRevocationCancelsMatchingActiveRun(t *testing.T) {
+	d := &daemon{activeRuns: make(map[string]activeRun)}
+	ctx, cancel := context.WithCancel(context.Background())
+	d.setActive("agent_owner", "run_1", "chan_task", cancel)
+
+	if !d.cancelAgent("agent_owner", "chan_task") {
+		t.Fatal("expected matching active run to be cancelled")
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("active run was not cancelled")
+	}
+}
+
+func TestTaskRevocationDoesNotCancelDifferentChannel(t *testing.T) {
+	d := &daemon{activeRuns: make(map[string]activeRun)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.setActive("agent_owner", "run_1", "chan_other", cancel)
+
+	if d.cancelAgent("agent_owner", "chan_task") {
+		t.Fatal("different channel should not be cancelled")
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal("run was cancelled for a different channel")
+	default:
+	}
+}
+
 func TestDemoReplyMentionsPeerAgents(t *testing.T) {
 	got := buildReply(
 		protocol.Agent{ID: "agent_lin", Name: "Lin"},
-		"@Lin @ClaudeLocal compare options",
+		"@Lin @Fullstack%20Dev compare options",
 		nil,
-		[]protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
+		[]protocol.Agent{{ID: "agent_fullstack_dev", Name: "Fullstack Dev"}},
 	)
-	if !strings.Contains(got, "@ClaudeLocal") {
+	if !strings.Contains(got, "@Fullstack%20Dev") {
 		t.Fatalf("demo reply should mention peer agent:\n%s", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -37,7 +38,17 @@ type daemon struct {
 	forceDemo     bool
 	runnerTimeout time.Duration
 	runnerWorkdir string
+	activeMu      sync.Mutex
+	activeRuns    map[string]activeRun
 }
+
+type activeRun struct {
+	id        string
+	channelID string
+	cancel    context.CancelFunc
+}
+
+var errTaskCancelled = errors.New("task cancelled")
 
 type runnerRequest struct {
 	EventType   string             `json:"eventType"`
@@ -88,6 +99,7 @@ func main() {
 		runnerFormat:  strings.ToLower(strings.TrimSpace(*runnerFormatFlag)),
 		runnerTimeout: *runnerTimeoutFlag,
 		runnerWorkdir: *runnerWorkdirFlag,
+		activeRuns:    make(map[string]activeRun),
 	}
 	d.configureRunner()
 	if d.runnerFormat == "" {
@@ -154,6 +166,21 @@ func (d *daemon) handle(env protocol.Envelope) error {
 			return err
 		}
 		d.startReply("task.assigned", payload.Agent, payload.ChannelID, payload.Task, nil, 0, nil, env.ID)
+	case "task.updated":
+		payload, err := protocol.DecodePayload[protocol.TaskOwnerEventPayload](env)
+		if err != nil {
+			return err
+		}
+		d.startReply("task.updated", payload.Agent, payload.ChannelID, payload.Message, nil, 0, nil, env.ID)
+	case "task.revoked":
+		payload, err := protocol.DecodePayload[protocol.TaskOwnerEventPayload](env)
+		if err != nil {
+			return err
+		}
+		if d.cancelAgent(payload.Agent.ID, payload.ChannelID) {
+			log.Printf("cancelled active task for %s after owner change", payload.Agent.Name)
+		}
+		return d.sendStatus(payload.Agent.ID, "idle", env.ID)
 	case "error":
 		log.Printf("server error: %s", string(env.Payload))
 	default:
@@ -163,9 +190,20 @@ func (d *daemon) handle(env protocol.Envelope) error {
 }
 
 func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	runID := protocol.NewID("run")
+	d.setActive(agent.ID, runID, channelID, cancel)
 	go func() {
+		defer d.clearActive(agent.ID, runID)
 		log.Printf("agent %s handling %s", agent.Name, eventType)
-		if err := d.reply(eventType, agent, channelID, prompt, peerAgents, threadDepth, recent, causationID); err != nil {
+		if err := d.reply(ctx, eventType, agent, channelID, prompt, peerAgents, threadDepth, recent, causationID); err != nil {
+			if errors.Is(err, errTaskCancelled) {
+				log.Printf("agent %s stopped %s", agent.Name, eventType)
+				if statusErr := d.sendStatus(agent.ID, "idle", causationID); statusErr != nil {
+					log.Printf("reset status for %s: %v", agent.Name, statusErr)
+				}
+				return
+			}
 			log.Printf("reply %s for %s: %v", eventType, agent.Name, err)
 			if statusErr := d.sendStatus(agent.ID, "idle", causationID); statusErr != nil {
 				log.Printf("reset status for %s: %v", agent.Name, statusErr)
@@ -174,7 +212,7 @@ func (d *daemon) startReply(eventType string, agent protocol.Agent, channelID, p
 	}()
 }
 
-func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) error {
+func (d *daemon) reply(ctx context.Context, eventType string, agent protocol.Agent, channelID, prompt string, peerAgents []protocol.Agent, threadDepth int, recent []protocol.Message, causationID string) error {
 	d.ensureAgent(agent.ID)
 	if err := d.sendStatus(agent.ID, "thinking", causationID); err != nil {
 		return err
@@ -202,7 +240,10 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 		Recent:      recent,
 		CausationID: causationID,
 	}
-	reply, err := d.buildAgentReply(request)
+	reply, err := d.buildAgentReply(ctx, request)
+	if errors.Is(err, errTaskCancelled) {
+		return err
+	}
 	if err != nil {
 		reply = fmt.Sprintf("Local runner failed: %v\n\nFalling back to demo runtime.\n\n%s", err, buildReply(agent, prompt, memories, peerAgents))
 	}
@@ -217,6 +258,39 @@ func (d *daemon) reply(eventType string, agent protocol.Agent, channelID, prompt
 		return err
 	}
 	return d.sendStatus(agent.ID, "idle", causationID)
+}
+
+func (d *daemon) setActive(agentID, runID, channelID string, cancel context.CancelFunc) {
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	if d.activeRuns == nil {
+		d.activeRuns = make(map[string]activeRun)
+	}
+	d.activeRuns[agentID] = activeRun{id: runID, channelID: channelID, cancel: cancel}
+}
+
+func (d *daemon) clearActive(agentID, runID string) {
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	if run, ok := d.activeRuns[agentID]; ok && run.id == runID {
+		delete(d.activeRuns, agentID)
+	}
+}
+
+func (d *daemon) cancelAgent(agentID, channelID string) bool {
+	d.activeMu.Lock()
+	run, ok := d.activeRuns[agentID]
+	if ok && channelID != "" && run.channelID != channelID {
+		ok = false
+	}
+	if ok {
+		delete(d.activeRuns, agentID)
+	}
+	d.activeMu.Unlock()
+	if ok {
+		run.cancel()
+	}
+	return ok
 }
 
 func (d *daemon) prepareMemories(agent protocol.Agent, channelID, prompt, causationID string) ([]string, *protocol.Envelope, error) {
@@ -246,31 +320,48 @@ func (d *daemon) prepareMemories(agent protocol.Agent, channelID, prompt, causat
 	return memories, &memEnv, nil
 }
 
-func (d *daemon) buildAgentReply(request runnerRequest) (string, error) {
+func (d *daemon) buildAgentReply(ctx context.Context, request runnerRequest) (string, error) {
 	if d.customRunner {
-		return d.runExternalAgent(request, d.runner, d.runnerFormat)
+		return d.runExternalAgent(ctx, request, d.runner, d.runnerFormat)
 	}
 	if d.forceDemo {
-		time.Sleep(450 * time.Millisecond)
+		if err := sleepWithCancel(ctx, 450*time.Millisecond); err != nil {
+			return "", err
+		}
 		return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 	}
 	command, format, err := d.commandForAgent(request.Agent)
 	if err != nil {
 		if request.Agent.Runtime == "demo" {
-			time.Sleep(450 * time.Millisecond)
+			if err := sleepWithCancel(ctx, 450*time.Millisecond); err != nil {
+				return "", err
+			}
 			return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 		}
 		return "", err
 	}
 	if command == "" {
-		time.Sleep(450 * time.Millisecond)
+		if err := sleepWithCancel(ctx, 450*time.Millisecond); err != nil {
+			return "", err
+		}
 		return buildReply(request.Agent, request.Prompt, request.Memories, request.PeerAgents), nil
 	}
-	return d.runExternalAgent(request, command, format)
+	return d.runExternalAgent(ctx, request, command, format)
 }
 
-func (d *daemon) runExternalAgent(request runnerRequest, command, format string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), d.runnerTimeout)
+func sleepWithCancel(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return errTaskCancelled
+	}
+}
+
+func (d *daemon) runExternalAgent(parent context.Context, request runnerRequest, command, format string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, d.runnerTimeout)
 	defer cancel()
 
 	cmd := shellCommand(ctx, command)
@@ -306,7 +397,10 @@ func (d *daemon) runExternalAgent(request runnerRequest, command, format string)
 	err := cmd.Run()
 	text := strings.TrimSpace(stdout.String())
 	errText := strings.TrimSpace(stderr.String())
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return "", errTaskCancelled
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		if text != "" {
 			return "", fmt.Errorf("runner timed out after %s with output: %s", d.runnerTimeout, compact(text, 900))
 		}
@@ -426,6 +520,20 @@ func buildRunnerPrompt(request runnerRequest) string {
 	}
 	fmt.Fprintf(&b, "Event type: %s\n", request.EventType)
 	fmt.Fprintf(&b, "Channel ID: %s\n\n", request.ChannelID)
+	if request.EventType == "task.assigned" {
+		b.WriteString("Task workflow:\n")
+		b.WriteString("- You are the current owner of this task; the server has already moved it to Doing.\n")
+		b.WriteString("- Work in the task channel and keep progress concrete.\n")
+		b.WriteString("- If this response finishes the requested work and it is ready for human or QA review, end with exactly: TASK_STATUS: review\n")
+		b.WriteString("- Never mark the task Done yourself; Review is the handoff state.\n\n")
+	}
+	if request.EventType == "task.updated" {
+		b.WriteString("Task update workflow:\n")
+		b.WriteString("- You are still the owner of this task.\n")
+		b.WriteString("- Treat this update as the latest source of truth and revise your execution plan if needed.\n")
+		b.WriteString("- If this response finishes the requested work and it is ready for human or QA review, end with exactly: TASK_STATUS: review\n")
+		b.WriteString("- Never mark the task Done yourself; Review is the handoff state.\n\n")
+	}
 	if len(request.Memories) > 0 {
 		b.WriteString("Relevant memories:\n")
 		for _, memory := range request.Memories {
@@ -451,13 +559,13 @@ func buildRunnerPrompt(request runnerRequest) string {
 	if len(request.PeerAgents) > 0 {
 		b.WriteString("Other agents addressed in the same user message:\n")
 		for _, peer := range request.PeerAgents {
-			fmt.Fprintf(&b, "- @%s", peer.Name)
+			fmt.Fprintf(&b, "- %s", protocol.MentionHandle(peer.Name))
 			if peer.Persona != "" {
 				fmt.Fprintf(&b, ": %s", peer.Persona)
 			}
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "\nCollaboration rule: This is turn %d of an agent-to-agent thread. During peer discussion, keep the reply short, concrete, and under 8 lines; do not paste the full proposal or long documentation yet. Use plain chat only during peer discussion: no Markdown headings, numbered document outlines, tables, code blocks, or document markers. If you still need peer input, explicitly mention the other participant with @Name and ask or answer them directly. Do not mention @You until the peer discussion has converged or you have a concrete final proposal. If the solution is settled, stop mentioning peer agents, provide only the final Markdown document between these exact markers, then mention @You after the end marker with a short handoff:\n<<<MARKDOWN_DOCUMENT>>>\n# Title\n...\n<<<END_MARKDOWN_DOCUMENT>>>\nAny handoff note, caveat, or @You message must be outside the markers, after <<<END_MARKDOWN_DOCUMENT>>>.\n\n", request.ThreadDepth+1)
+		fmt.Fprintf(&b, "\nCollaboration rule: This is turn %d of an agent-to-agent thread. During peer discussion, keep the reply short, concrete, and under 8 lines; do not paste the full proposal or long documentation yet. Use plain chat only during peer discussion: no Markdown headings, numbered document outlines, tables, code blocks, or document markers. If you still need peer input, explicitly mention the other participant using the exact @handle listed above and ask or answer them directly. Do not mention @You until the peer discussion has converged or you have a concrete final proposal. If the solution is settled, stop mentioning peer agents, provide only the final Markdown document between these exact markers, then mention @You after the end marker with a short handoff:\n<<<MARKDOWN_DOCUMENT>>>\n# Title\n...\n<<<END_MARKDOWN_DOCUMENT>>>\nAny handoff note, caveat, or @You message must be outside the markers, after <<<END_MARKDOWN_DOCUMENT>>>.\n\n", request.ThreadDepth+1)
 	}
 	if len(request.Recent) > 0 {
 		b.WriteString("Recent channel context:\n")
@@ -537,7 +645,7 @@ func peerMentionLine(peerAgents []protocol.Agent) string {
 	var mentions []string
 	for _, peer := range peerAgents {
 		if strings.TrimSpace(peer.Name) != "" {
-			mentions = append(mentions, "@"+peer.Name)
+			mentions = append(mentions, protocol.MentionHandle(peer.Name))
 		}
 	}
 	if len(mentions) == 0 {

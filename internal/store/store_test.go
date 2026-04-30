@@ -356,6 +356,62 @@ func TestTasksCanBeAssignedToParticipants(t *testing.T) {
 	}
 }
 
+func TestTasksCanMoveToNamedWorkflowLanes(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.AddTask("Implement handoff", "", "lane_todo", "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doing, changed, err := st.MoveTaskToLaneName(task.ID, "Doing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || doing.LaneID != "lane_doing" {
+		t.Fatalf("doing task = %+v changed=%v", doing, changed)
+	}
+	review, changed, err := st.MoveTaskToLaneName(task.ID, "Review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || review.LaneID != "lane_review" {
+		t.Fatalf("review task = %+v changed=%v", review, changed)
+	}
+	again, changed, err := st.MoveTaskToLaneName(task.ID, "Review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed || again.LaneID != "lane_review" {
+		t.Fatalf("repeat move should be a no-op: %+v changed=%v", again, changed)
+	}
+}
+
+func TestTaskLanesCanBeReordered(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, err := st.MoveTaskLane("lane_done", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lane.ID != "lane_done" {
+		t.Fatalf("moved lane = %s, want lane_done", lane.ID)
+	}
+	lanes := st.Snapshot().TaskLanes
+	if len(lanes) < 2 || lanes[1].ID != "lane_done" {
+		t.Fatalf("lane order = %+v, want lane_done at index 1", lanes)
+	}
+	for i, lane := range lanes {
+		if lane.Position != i {
+			t.Fatalf("lane %s position = %d, want %d", lane.ID, lane.Position, i)
+		}
+	}
+}
+
 func TestDeleteTaskLaneMovesTasksToFallback(t *testing.T) {
 	st, err := New(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {

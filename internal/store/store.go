@@ -254,6 +254,40 @@ func (s *Store) AddTaskLane(name string) (protocol.TaskLane, error) {
 	return lane, s.saveLocked()
 }
 
+func (s *Store) MoveTaskLane(id string, position int) (protocol.TaskLane, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.state.TaskLanes) == 0 {
+		return protocol.TaskLane{}, errors.New("lane not found")
+	}
+	index := s.findTaskLaneIndexLocked(id)
+	if index == -1 {
+		return protocol.TaskLane{}, errors.New("lane not found")
+	}
+	if position < 0 {
+		position = 0
+	}
+	if position >= len(s.state.TaskLanes) {
+		position = len(s.state.TaskLanes) - 1
+	}
+	lane := s.state.TaskLanes[index]
+	if index == position {
+		return lane, nil
+	}
+	s.state.TaskLanes = append(s.state.TaskLanes[:index], s.state.TaskLanes[index+1:]...)
+	if position >= len(s.state.TaskLanes) {
+		s.state.TaskLanes = append(s.state.TaskLanes, lane)
+	} else {
+		s.state.TaskLanes = append(s.state.TaskLanes[:position], append([]protocol.TaskLane{lane}, s.state.TaskLanes[position:]...)...)
+	}
+	s.normalizeTaskLanePositionsLocked()
+	s.touchLocked()
+	if movedIndex := s.findTaskLaneIndexLocked(lane.ID); movedIndex != -1 {
+		lane = s.state.TaskLanes[movedIndex]
+	}
+	return lane, s.saveLocked()
+}
+
 func (s *Store) DeleteTaskLane(id string) (protocol.TaskLane, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -359,6 +393,29 @@ func (s *Store) UpdateTask(id string, title, description, laneID, assigneeKind, 
 	return protocol.Task{}, errors.New("task not found")
 }
 
+func (s *Store) MoveTaskToLaneName(id, laneName string) (protocol.Task, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	laneIndex := s.findTaskLaneIndexLocked(laneName)
+	if laneIndex == -1 {
+		return protocol.Task{}, false, errors.New("lane not found")
+	}
+	targetID := s.state.TaskLanes[laneIndex].ID
+	for i := range s.state.Tasks {
+		if s.state.Tasks[i].ID != strings.TrimSpace(id) {
+			continue
+		}
+		if s.state.Tasks[i].LaneID == targetID {
+			return s.state.Tasks[i], false, nil
+		}
+		s.state.Tasks[i].LaneID = targetID
+		s.state.Tasks[i].UpdatedAt = protocol.Now()
+		s.touchLocked()
+		return s.state.Tasks[i], true, s.saveLocked()
+	}
+	return protocol.Task{}, false, errors.New("task not found")
+}
+
 func (s *Store) AssignTaskByChannel(channelID, kind, assigneeID string) (protocol.Task, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -381,6 +438,18 @@ func (s *Store) AssignTaskByChannel(channelID, kind, assigneeID string) (protoco
 		return s.state.Tasks[i], true, s.saveLocked()
 	}
 	return protocol.Task{}, false, nil
+}
+
+func (s *Store) TaskForChannel(channelID string) (protocol.Task, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	channelID = strings.TrimSpace(channelID)
+	for _, task := range s.state.Tasks {
+		if task.ChannelID == channelID {
+			return task, true
+		}
+	}
+	return protocol.Task{}, false
 }
 
 func (s *Store) DeleteTask(id string) (protocol.Task, error) {
@@ -803,8 +872,9 @@ func defaultTaskLanes() []protocol.TaskLane {
 		{ID: "lane_backlog", Name: "Backlog", Position: 0},
 		{ID: "lane_todo", Name: "Todo", Position: 1},
 		{ID: "lane_doing", Name: "Doing", Position: 2},
-		{ID: "lane_done", Name: "Done", Position: 3},
-		{ID: "lane_unplanned", Name: "Unplanned", Position: 4},
+		{ID: "lane_review", Name: "Review", Position: 3},
+		{ID: "lane_done", Name: "Done", Position: 4},
+		{ID: "lane_unplanned", Name: "Unplanned", Position: 5},
 	}
 }
 
@@ -981,6 +1051,23 @@ func (s *Store) normalizeTaskLanePositionsLocked() {
 	for i := range s.state.TaskLanes {
 		s.state.TaskLanes[i].Position = i
 	}
+}
+
+func (s *Store) ensureTaskLaneLocked(lane protocol.TaskLane, afterID, beforeID string) {
+	if s.findTaskLaneIndexLocked(lane.ID) != -1 || s.findTaskLaneIndexLocked(lane.Name) != -1 {
+		return
+	}
+	insertAt := len(s.state.TaskLanes)
+	if afterIndex := s.findTaskLaneIndexLocked(afterID); afterIndex != -1 {
+		insertAt = afterIndex + 1
+	} else if beforeIndex := s.findTaskLaneIndexLocked(beforeID); beforeIndex != -1 {
+		insertAt = beforeIndex
+	}
+	if insertAt >= len(s.state.TaskLanes) {
+		s.state.TaskLanes = append(s.state.TaskLanes, lane)
+		return
+	}
+	s.state.TaskLanes = append(s.state.TaskLanes[:insertAt], append([]protocol.TaskLane{lane}, s.state.TaskLanes[insertAt:]...)...)
 }
 
 func (s *Store) findChannelLocked(id string) (protocol.Channel, bool) {
@@ -1221,6 +1308,7 @@ func (s *Store) ensureTaskDefaultsLocked() {
 		}
 		seen[s.state.TaskLanes[i].ID] = true
 	}
+	s.ensureTaskLaneLocked(protocol.TaskLane{ID: "lane_review", Name: "Review"}, "lane_doing", "lane_done")
 	s.normalizeTaskLanePositionsLocked()
 
 	fallback := s.firstTaskLaneIDLocked()

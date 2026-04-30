@@ -31,6 +31,8 @@ const (
 
 var skillImportHTTPClient = &http.Client{Timeout: 8 * time.Second}
 
+var taskReviewMarkerRE = regexp.MustCompile(`(?im)^\s*TASK_STATUS\s*:\s*review\s*$`)
+
 type app struct {
 	store        *store.Store
 	hub          *realtime.Hub
@@ -423,23 +425,45 @@ func (a *app) handleTaskLanes(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleTaskLaneSubroutes(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/task-lanes/"), "/")
-	if r.Method != http.MethodDelete {
-		methodNotAllowed(w)
-		return
-	}
 	if path == "" || strings.Contains(path, "/") {
 		http.NotFound(w, r)
 		return
 	}
-	lane, err := a.store.DeleteTaskLane(path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
+	switch r.Method {
+	case http.MethodPatch:
+		var req struct {
+			Position *int `json:"position"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Position == nil {
+			writeError(w, http.StatusBadRequest, errors.New("lane position is required"))
+			return
+		}
+		lane, err := a.store.MoveTaskLane(path, *req.Position)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		env := protocol.NewEnvelope(a.store.ServerID(), "task_lane.moved", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, lane, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusOK, lane)
+	case http.MethodDelete:
+		lane, err := a.store.DeleteTaskLane(path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		env := protocol.NewEnvelope(a.store.ServerID(), "task_lane.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, lane, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusOK, lane)
+	default:
+		methodNotAllowed(w)
 	}
-	env := protocol.NewEnvelope(a.store.ServerID(), "task_lane.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, lane, "")
-	_ = a.store.AddEnvelope(env)
-	a.broadcast()
-	writeJSON(w, http.StatusOK, lane)
 }
 
 func (a *app) handleTasks(w http.ResponseWriter, r *http.Request) {
@@ -508,6 +532,7 @@ func (a *app) handleTaskSubroutes(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
+		before, beforeFound := taskByID(a.store.Snapshot().Tasks, taskPath)
 		task, err := a.store.UpdateTask(taskPath, req.Title, req.Description, req.LaneID, req.AssigneeKind, req.AssigneeID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -515,6 +540,14 @@ func (a *app) handleTaskSubroutes(w http.ResponseWriter, r *http.Request) {
 		}
 		env := protocol.NewEnvelope(a.store.ServerID(), "task.updated", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "task", ID: task.ID}, task, "")
 		_ = a.store.AddEnvelope(env)
+		if beforeFound && taskAssigneeChanged(before, task) {
+			a.revokePreviousTaskOwner(before, task, env.ID)
+			if task.AssigneeKind != "" && task.AssigneeID != "" {
+				task = a.startTaskForOwner(task, env.ID, true)
+			}
+		} else if task.AssigneeKind == "agent" && task.AssigneeID != "" {
+			a.notifyTaskOwner(task, before, env.ID)
+		}
 		a.broadcast()
 		writeJSON(w, http.StatusOK, task)
 	case http.MethodDelete:
@@ -792,7 +825,7 @@ func (a *app) assignTask(agent protocol.Agent, channelID, task, causationID stri
 		AuthorKind: "system",
 		AuthorID:   "system",
 		AuthorName: "Task Router",
-		Text:       "Assigned to @" + agent.Name + ": " + payload.Task,
+		Text:       "Assigned to " + protocol.MentionHandle(agent.Name) + ": " + payload.Task,
 		Kind:       "task",
 		Tags:       []string{"task", agent.ID},
 	}
@@ -867,9 +900,191 @@ func (a *app) assignTaskFromMention(channelID, agentID, causationID string) {
 	if err != nil || !changed {
 		return
 	}
+	task = a.startTaskProgress(task, causationID)
 	payload := map[string]any{"task": task, "assigneeKind": "agent", "assigneeId": agentID, "source": "mention"}
 	env := protocol.NewEnvelope(a.store.ServerID(), "task.assignee.changed", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "task", ID: task.ID}, payload, causationID)
 	_ = a.store.AddEnvelope(env)
+}
+
+func (a *app) startTaskForOwner(task protocol.Task, causationID string, dispatch bool) protocol.Task {
+	task = a.startTaskProgress(task, causationID)
+	if dispatch {
+		task = a.dispatchTaskToOwner(task, causationID)
+	}
+	return task
+}
+
+func (a *app) startTaskProgress(task protocol.Task, causationID string) protocol.Task {
+	snapshot := a.store.Snapshot()
+	if !strings.EqualFold(taskLaneName(snapshot.TaskLanes, task.LaneID), "Todo") {
+		return task
+	}
+	moved, changed, err := a.store.MoveTaskToLaneName(task.ID, "Doing")
+	if err != nil || !changed {
+		return task
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task.started", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "task", ID: moved.ID}, moved, causationID)
+	_ = a.store.AddEnvelope(env)
+	return moved
+}
+
+func (a *app) dispatchTaskToOwner(task protocol.Task, causationID string) protocol.Task {
+	if task.AssigneeKind != "agent" || task.AssigneeID == "" {
+		return task
+	}
+	agent, ok := a.store.FindAgent(task.AssigneeID)
+	if !ok {
+		return task
+	}
+	linkedTask, ch, _, err := a.store.CreateTaskChannel(task.ID)
+	if err != nil {
+		return task
+	}
+	task = linkedTask
+	a.setActiveAgent(ch.ID, agent.ID)
+	payload := protocol.TaskAssignedPayload{
+		Agent:     agent,
+		ChannelID: ch.ID,
+		Task:      formatTaskAssignmentPrompt(task),
+		MessageID: protocol.NewID("task"),
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task.assigned", protocol.Actor{Kind: "system", ID: "task-router"}, protocol.Scope{Kind: "channel", ID: ch.ID}, payload, causationID)
+	go a.routeTask(agent, ch, payload, env)
+	return task
+}
+
+func (a *app) notifyTaskOwner(task, before protocol.Task, causationID string) protocol.Task {
+	if task.AssigneeKind != "agent" || task.AssigneeID == "" {
+		return task
+	}
+	agent, ok := a.store.FindAgent(task.AssigneeID)
+	if !ok {
+		return task
+	}
+	linkedTask, ch, _, err := a.store.CreateTaskChannel(task.ID)
+	if err != nil {
+		return task
+	}
+	task = linkedTask
+	payload := protocol.TaskOwnerEventPayload{
+		Agent:             agent,
+		ChannelID:         ch.ID,
+		Task:              task,
+		Message:           formatTaskUpdatePrompt(before, task),
+		PreviousOwnerKind: before.AssigneeKind,
+		PreviousOwnerID:   before.AssigneeID,
+		CurrentOwnerKind:  task.AssigneeKind,
+		CurrentOwnerID:    task.AssigneeID,
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task.updated", protocol.Actor{Kind: "system", ID: "task-router"}, protocol.Scope{Kind: "channel", ID: ch.ID}, payload, causationID)
+	if !a.sendToAgent(agent, env) {
+		a.fallbackReply(agent, ch.ID, payload.Message, env.ID)
+	}
+	return task
+}
+
+func (a *app) revokePreviousTaskOwner(before, after protocol.Task, causationID string) {
+	if before.AssigneeKind != "agent" || before.AssigneeID == "" || before.AssigneeID == after.AssigneeID {
+		return
+	}
+	agent, ok := a.store.FindAgent(before.AssigneeID)
+	if !ok {
+		return
+	}
+	channelID := after.ChannelID
+	if channelID == "" {
+		channelID = before.ChannelID
+	}
+	if channelID == "" {
+		linkedTask, ch, _, err := a.store.CreateTaskChannel(after.ID)
+		if err != nil {
+			return
+		}
+		after = linkedTask
+		channelID = ch.ID
+	}
+	payload := protocol.TaskOwnerEventPayload{
+		Agent:             agent,
+		ChannelID:         channelID,
+		Task:              after,
+		Message:           formatTaskRevokedPrompt(before, after),
+		PreviousOwnerKind: before.AssigneeKind,
+		PreviousOwnerID:   before.AssigneeID,
+		CurrentOwnerKind:  after.AssigneeKind,
+		CurrentOwnerID:    after.AssigneeID,
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task.revoked", protocol.Actor{Kind: "system", ID: "task-router"}, protocol.Scope{Kind: "channel", ID: channelID}, payload, causationID)
+	if !a.sendControlToAgent(agent, env) {
+		_ = a.store.AddEnvelope(env)
+	}
+}
+
+func formatTaskAssignmentPrompt(task protocol.Task) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "You are now the owner of this task.\n\nTitle: %s\n", task.Title)
+	if strings.TrimSpace(task.Description) != "" {
+		fmt.Fprintf(&b, "Description: %s\n", task.Description)
+	}
+	b.WriteString("\nWorkflow:\n")
+	b.WriteString("- The server has moved this task to Doing.\n")
+	b.WriteString("- Work in this task channel and report only concrete progress.\n")
+	b.WriteString("- If you have finished the work and it is ready for human or QA review, end your reply with exactly: TASK_STATUS: review\n")
+	b.WriteString("- Do not move the task to Done; Review is the handoff state.\n")
+	return b.String()
+}
+
+func formatTaskUpdatePrompt(before, after protocol.Task) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "A task you own was updated.\n\nTitle: %s\n", after.Title)
+	if strings.TrimSpace(after.Description) != "" {
+		fmt.Fprintf(&b, "Description: %s\n", after.Description)
+	}
+	if before.Title != after.Title {
+		fmt.Fprintf(&b, "Previous title: %s\n", before.Title)
+	}
+	if before.Description != after.Description {
+		fmt.Fprintf(&b, "Previous description: %s\n", before.Description)
+	}
+	b.WriteString("\nUse this update as the latest task source of truth. Continue from the task channel, and if the work is ready for review, end with exactly: TASK_STATUS: review\n")
+	return b.String()
+}
+
+func formatTaskRevokedPrompt(before, after protocol.Task) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Stop working on this task immediately.\n\nTitle: %s\n", after.Title)
+	if strings.TrimSpace(after.Description) != "" {
+		fmt.Fprintf(&b, "Description: %s\n", after.Description)
+	}
+	if after.AssigneeKind != "" && after.AssigneeID != "" {
+		fmt.Fprintf(&b, "\nThe task owner changed from %s/%s to %s/%s.", before.AssigneeKind, before.AssigneeID, after.AssigneeKind, after.AssigneeID)
+	} else {
+		fmt.Fprintf(&b, "\nThe task no longer has an owner. Your previous ownership %s/%s has been revoked.", before.AssigneeKind, before.AssigneeID)
+	}
+	b.WriteString("\nDo not continue execution or post a task completion for the revoked assignment.")
+	return b.String()
+}
+
+func taskByID(tasks []protocol.Task, id string) (protocol.Task, bool) {
+	id = strings.TrimSpace(id)
+	for _, task := range tasks {
+		if task.ID == id {
+			return task, true
+		}
+	}
+	return protocol.Task{}, false
+}
+
+func taskAssigneeChanged(before, after protocol.Task) bool {
+	return before.AssigneeKind != after.AssigneeKind || before.AssigneeID != after.AssigneeID
+}
+
+func taskLaneName(lanes []protocol.TaskLane, laneID string) string {
+	for _, lane := range lanes {
+		if lane.ID == laneID {
+			return lane.Name
+		}
+	}
+	return ""
 }
 
 func peerAgentsFor(agents []protocol.Agent, agentID string) []protocol.Agent {
@@ -1134,6 +1349,22 @@ func (a *app) sendToAgent(agent protocol.Agent, env protocol.Envelope) bool {
 	return true
 }
 
+func (a *app) sendControlToAgent(agent protocol.Agent, env protocol.Envelope) bool {
+	client := a.daemons.get(agent.DaemonID)
+	if client == nil {
+		client = a.daemons.first()
+	}
+	if client == nil {
+		return false
+	}
+	if err := client.writeJSON(env); err != nil {
+		return false
+	}
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	return true
+}
+
 func (a *app) spawnAgent(agent protocol.Agent) {
 	client := a.daemons.first()
 	if client == nil {
@@ -1187,12 +1418,14 @@ func (a *app) appendAgentReply(payload protocol.AgentReplyPayload, env protocol.
 	if !ok {
 		return
 	}
+	cleanText, explicitReview := stripTaskReviewMarker(payload.Text)
+	payload.Text = cleanText
 	msg := protocol.Message{
 		ChannelID:  payload.ChannelID,
 		AuthorKind: "agent",
 		AuthorID:   agent.ID,
 		AuthorName: agent.Name,
-		Text:       payload.Text,
+		Text:       cleanText,
 		Kind:       "message",
 		Tags:       []string{"agent"},
 	}
@@ -1203,8 +1436,68 @@ func (a *app) appendAgentReply(payload protocol.AgentReplyPayload, env protocol.
 	for _, memory := range payload.Memory {
 		_ = a.store.AppendMemory(agent.ID, memory, "reply")
 	}
+	a.advanceTaskToReviewForAgentReply(agent, payload.ChannelID, cleanText, explicitReview, env.ID)
 	_ = a.store.UpdateAgentStatus(agent.ID, "idle", daemonID)
 	a.routeAgentReplyMentions(agent, stored, payload, env)
+}
+
+func stripTaskReviewMarker(text string) (string, bool) {
+	if !taskReviewMarkerRE.MatchString(text) {
+		return text, false
+	}
+	clean := taskReviewMarkerRE.ReplaceAllString(text, "")
+	clean = strings.TrimSpace(clean)
+	return clean, true
+}
+
+func (a *app) advanceTaskToReviewForAgentReply(agent protocol.Agent, channelID, text string, explicit bool, causationID string) {
+	task, ok := a.store.TaskForChannel(channelID)
+	if !ok || task.AssigneeKind != "agent" || task.AssigneeID != agent.ID {
+		return
+	}
+	if !explicit && !taskReplyLooksReadyForReview(text) {
+		return
+	}
+	moved, changed, err := a.store.MoveTaskToLaneName(task.ID, "Review")
+	if err != nil || !changed {
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task.review_requested", protocol.Actor{Kind: "agent", ID: agent.ID, Name: agent.Name}, protocol.Scope{Kind: "task", ID: moved.ID}, moved, causationID)
+	_ = a.store.AddEnvelope(env)
+}
+
+func taskReplyLooksReadyForReview(text string) bool {
+	lower := strings.ToLower(text)
+	blockers := []string{"not done", "not ready", "blocked", "未完成", "还没完成", "没有完成", "阻塞"}
+	for _, blocker := range blockers {
+		if strings.Contains(lower, blocker) {
+			return false
+		}
+	}
+	signals := []string{
+		"ready for review",
+		"ready to review",
+		"completed",
+		"finished",
+		"implemented",
+		"pr link",
+		"pull request",
+		"已完成",
+		"完成了",
+		"做完了",
+		"可以 review",
+		"进入 review",
+		"可以验收",
+		"准备验收",
+		"可验收",
+		"pr 链接",
+	}
+	for _, signal := range signals {
+		if strings.Contains(lower, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) routeAgentReplyMentions(author protocol.Agent, msg protocol.Message, payload protocol.AgentReplyPayload, env protocol.Envelope) {

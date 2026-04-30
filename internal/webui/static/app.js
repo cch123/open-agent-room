@@ -21,10 +21,16 @@ const state = {
   skillTagFilter: "",
   taskDragId: "",
   focusTaskId: "",
+  editingTaskId: "",
+  taskDrawerTaskId: "",
+  taskDrawerChannelId: "",
+  taskDrawerDraft: "",
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
 const markdownDocumentEndMarker = "<<<END_MARKDOWN_DOCUMENT>>>";
+const markdownDocumentCardMinLines = 24;
+const markdownDocumentCardMinChars = 1400;
 
 const hoverTooltip = document.createElement("div");
 hoverTooltip.className = "hover-tooltip";
@@ -85,6 +91,15 @@ const els = {
   taskManagerAdd: document.querySelector("#task-manager-add"),
   taskLaneAdd: document.querySelector("#task-lane-add"),
   taskBoard: document.querySelector("#task-board"),
+  taskChatDrawer: document.querySelector("#task-chat-drawer"),
+  taskChatTitle: document.querySelector("#task-chat-title"),
+  taskChatMeta: document.querySelector("#task-chat-meta"),
+  taskChatOpenChannel: document.querySelector("#task-chat-open-channel"),
+  taskChatClose: document.querySelector("#task-chat-close"),
+  taskChatMessages: document.querySelector("#task-chat-messages"),
+  taskChatComposer: document.querySelector("#task-chat-composer"),
+  taskChatMentions: document.querySelector("#task-chat-mentions"),
+  taskChatInput: document.querySelector("#task-chat-input"),
   composer: document.querySelector("#composer"),
   input: document.querySelector("#message-input"),
   mentionRow: document.querySelector("#mention-row"),
@@ -107,10 +122,13 @@ const els = {
   agentSkills: document.querySelector("#agent-skills"),
   agentSkillLibrary: document.querySelector("#agent-skill-library"),
   taskDialog: document.querySelector("#task-dialog"),
+  taskDialogTitle: document.querySelector("#task-dialog-title"),
+  taskSubmit: document.querySelector("#task-create"),
   taskTitle: document.querySelector("#task-title"),
   taskDescription: document.querySelector("#task-description"),
   taskLane: document.querySelector("#task-lane"),
   taskLaneDialog: document.querySelector("#task-lane-dialog"),
+  taskLaneList: document.querySelector("#task-lane-list"),
   taskLaneName: document.querySelector("#task-lane-name"),
   userDialog: document.querySelector("#user-dialog"),
   userName: document.querySelector("#user-name"),
@@ -192,6 +210,7 @@ function render() {
 
   initializeChannelReadState(channels);
   if (!isManagementView && current) markChannelRead(current.id);
+  if (isTaskView && state.taskDrawerChannelId) markChannelRead(state.taskDrawerChannelId);
   renderChannels(channels);
   renderUsers(users);
   renderAgents(agents);
@@ -200,9 +219,11 @@ function render() {
   } else if (isTaskView) {
     renderTaskManager(taskLanes, tasks, channels, users, agents);
   } else {
+    closeTaskChatDrawer({ renderNow: false });
     renderMessages();
     renderMentions(availableMentionAgents(current, agents));
   }
+  renderTaskChatDrawer(tasks, channels, users, agents, taskLanes, isTaskView);
   renderDaemon(daemons);
   renderChannelSettings(current, agents);
   renderAssign(agents);
@@ -313,43 +334,51 @@ function renderAgents(agents) {
 }
 
 function renderMessages() {
+  renderMessagesFor(els.messages, state.channelId);
+}
+
+function renderMessagesFor(container, channelId) {
   const messages = state.snapshot.messages || [];
   const agents = state.snapshot.agents || [];
   const users = state.snapshot.users || [];
   const byAgent = new Map(agents.map((agent) => [agent.id, agent]));
   const byUser = new Map((users || []).map((user) => [user.id, user]));
-  const visible = messages.filter((message) => message.channelId === state.channelId);
-  els.messages.innerHTML = "";
+  const visible = messages.filter((message) => message.channelId === channelId);
+  container.innerHTML = "";
   for (const message of visible) {
-    const item = document.createElement("article");
-    item.className = `message ${message.kind || ""} ${message.authorKind || ""}`;
-    const agent = byAgent.get(message.authorId);
-    const user = byUser.get(message.authorId);
-    const color = agent?.color || user?.color || (message.authorKind === "human" ? "#2563eb" : "#64748b");
-    const content = renderMessageContent(message);
-    const profileAttrs = message.authorKind === "agent" || message.authorKind === "human"
-      ? `data-profile-kind="${escapeHTML(message.authorKind)}" data-profile-id="${escapeHTML(message.authorId)}" data-profile-name="${escapeHTML(message.authorName)}" tabindex="0"`
-      : "";
-    item.innerHTML = `
-      <span class="avatar profile-anchor" style="background:${color}" ${profileAttrs}>${initials(message.authorName)}</span>
-      <div>
-        <div class="message-header">
-          <span class="message-name profile-anchor" ${profileAttrs}>${escapeHTML(message.authorName)}</span>
-          <span class="message-kind">${escapeHTML(message.authorKind)}</span>
-          <time class="message-time">${formatTime(message.timestamp)}</time>
-        </div>
-        ${content}
-      </div>`;
-    const cards = item.querySelectorAll("[data-markdown-document]");
-    for (const card of cards) {
-      card.addEventListener("click", () => {
-        const document = markdownDocumentParts(message).document;
-        openMarkdownDocument(message, document);
-      });
-    }
-    els.messages.append(item);
+    container.append(createMessageElement(message, byAgent, byUser));
   }
-  els.messages.scrollTop = els.messages.scrollHeight;
+  container.scrollTop = container.scrollHeight;
+}
+
+function createMessageElement(message, byAgent, byUser) {
+  const item = document.createElement("article");
+  item.className = `message ${message.kind || ""} ${message.authorKind || ""}`;
+  const agent = byAgent.get(message.authorId);
+  const user = byUser.get(message.authorId);
+  const color = agent?.color || user?.color || (message.authorKind === "human" ? "#2563eb" : "#64748b");
+  const content = renderMessageContent(message);
+  const profileAttrs = message.authorKind === "agent" || message.authorKind === "human"
+    ? `data-profile-kind="${escapeHTML(message.authorKind)}" data-profile-id="${escapeHTML(message.authorId)}" data-profile-name="${escapeHTML(message.authorName)}" tabindex="0"`
+    : "";
+  item.innerHTML = `
+    <span class="avatar profile-anchor" style="background:${color}" ${profileAttrs}>${initials(message.authorName)}</span>
+    <div>
+      <div class="message-header">
+        <span class="message-name profile-anchor" ${profileAttrs}>${escapeHTML(message.authorName)}</span>
+        <span class="message-kind">${escapeHTML(message.authorKind)}</span>
+        <time class="message-time">${formatTime(message.timestamp)}</time>
+      </div>
+      ${content}
+    </div>`;
+  const cards = item.querySelectorAll("[data-markdown-document]");
+  for (const card of cards) {
+    card.addEventListener("click", () => {
+      const document = markdownDocumentParts(message).document;
+      openMarkdownDocument(message, document);
+    });
+  }
+  return item;
 }
 
 function renderTaskChannelContext(task, lane, users, agents, isManagementView) {
@@ -376,11 +405,69 @@ function renderTaskChannelContext(task, lane, users, agents, isManagementView) {
   els.taskContext.querySelector("[data-action='open-task-board']").addEventListener("click", () => viewTaskOnBoard(task.id));
 }
 
+function renderTaskChatDrawer(tasks, channels, users, agents, lanes, isTaskView) {
+  if (!isTaskView || !state.taskDrawerTaskId) {
+    els.taskChatDrawer.hidden = true;
+    return;
+  }
+  const task = tasks.find((candidate) => candidate.id === state.taskDrawerTaskId);
+  if (!task) {
+    closeTaskChatDrawer({ renderNow: false });
+    return;
+  }
+  const channelID = state.taskDrawerChannelId || task.channelId;
+  const channel = channels.find((candidate) => candidate.id === channelID);
+  if (!channel) {
+    els.taskChatDrawer.hidden = true;
+    return;
+  }
+  state.taskDrawerChannelId = channel.id;
+  const lane = lanes.find((candidate) => candidate.id === task.laneId);
+  els.taskChatDrawer.hidden = false;
+  els.taskChatTitle.textContent = task.title;
+  els.taskChatMeta.textContent = `${lane?.name || "Unplanned"} · ${taskAssigneeLabel(task, users, agents)} · #${channel.name}`;
+  renderMessagesFor(els.taskChatMessages, channel.id);
+  renderTaskChatMentions(availableMentionAgents(channel, agents));
+  if (els.taskChatInput.value !== state.taskDrawerDraft) {
+    els.taskChatInput.value = state.taskDrawerDraft;
+  }
+  markChannelRead(channel.id);
+}
+
+function renderTaskChatMentions(agents) {
+  els.taskChatMentions.innerHTML = "";
+  for (const agent of agents) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mention-button";
+    button.textContent = `@${agent.name}`;
+    button.dataset.profileKind = "agent";
+    button.dataset.profileId = agent.id;
+    button.dataset.profileName = agent.name;
+    button.addEventListener("click", () => insertTaskChatMention(agent.name));
+    els.taskChatMentions.append(button);
+  }
+}
+
+function closeTaskChatDrawer(options = {}) {
+  state.taskDrawerTaskId = "";
+  state.taskDrawerChannelId = "";
+  state.taskDrawerDraft = "";
+  els.taskChatDrawer.hidden = true;
+  if (options.renderNow !== false) render();
+}
+
 function renderMessageContent(message) {
   if (!isMarkdownDocumentMessage(message)) {
     return renderChatBlocks(message.text);
   }
   const parts = markdownDocumentParts(message);
+  if (!shouldCollapseMarkdownDocument(parts.document)) {
+    const before = parts.before ? renderChatBlocks(parts.before) : "";
+    const document = renderInlineMarkdownDocument(parts.document);
+    const after = parts.after ? renderChatBlocks(parts.after) : "";
+    return `${before}${document}${after}`;
+  }
   const title = markdownDocumentTitle(parts.document);
   const stats = markdownStats(parts.document);
   const excerpt = markdownExcerpt(parts.document, title);
@@ -403,6 +490,19 @@ function renderMessageContent(message) {
 function renderChatBlocks(text = "") {
   const rendered = renderMarkdown(normalizeChatBlockMarkdown(text || ""));
   return rendered ? `<div class="message-blocks">${rendered}</div>` : "";
+}
+
+function renderInlineMarkdownDocument(text = "") {
+  const rendered = renderMarkdown(text || "");
+  return rendered ? `<div class="message-blocks inline-markdown-document">${rendered}</div>` : "";
+}
+
+function shouldCollapseMarkdownDocument(text = "") {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const lines = trimmed.split("\n");
+  const nonEmptyLines = lines.filter((line) => line.trim()).length;
+  return trimmed.length >= markdownDocumentCardMinChars || nonEmptyLines >= markdownDocumentCardMinLines;
 }
 
 function isMarkdownDocumentMessage(message) {
@@ -436,14 +536,15 @@ function isPeerDiscussionMessage(message) {
 
 function mentionTokens(text) {
   const tokens = new Set();
-  for (const match of text.matchAll(/@([a-z0-9][a-z0-9_-]{0,40})/gi)) {
-    tokens.add(match[1].toLowerCase());
+  for (const match of text.matchAll(mentionTokenRegex())) {
+    const token = mentionKey(match[1]);
+    if (token) tokens.add(token);
   }
   return tokens;
 }
 
 function agentMentionToken(value = "") {
-  return value.trim().toLowerCase().replace(/\s+/g, "-");
+  return mentionKey(value);
 }
 
 function agentShortIDToken(value = "") {
@@ -529,7 +630,7 @@ function previousNonEmptyLine(lines, start) {
 function isConversationalTailLine(line) {
   const trimmed = line.trim();
   if (!trimmed || isMarkdownStructuralLine(trimmed)) return false;
-  if (/^@[A-Za-z0-9_-]+\b/.test(trimmed)) return true;
+  if (/^@[^\s@<>()\[\]{}.,，。:：;；!?！？]+(?:\s|$)/.test(trimmed)) return true;
   if (/^(唯一分歧|最后|结论|补充|备注|注意)[:：]/.test(trimmed)) return true;
   return false;
 }
@@ -649,7 +750,7 @@ function updateMentionSuggestions() {
     return;
   }
 
-  const query = match.query.toLowerCase();
+  const query = decodeMentionToken(match.query).toLowerCase();
   if (!state.mention.active || state.mention.query !== match.query || state.mention.start !== match.start) {
     state.mention.selected = 0;
   }
@@ -717,7 +818,7 @@ function selectMention(agent) {
   if (!match) return;
   const before = els.input.value.slice(0, match.start);
   const after = els.input.value.slice(match.end);
-  const mention = `@${agent.name.replace(/\s+/g, "-")} `;
+  const mention = `${mentionHandle(agent.name)} `;
   const value = `${before}${mention}${after}`;
   const cursor = before.length + mention.length;
   els.input.value = value;
@@ -926,9 +1027,56 @@ async function sendComposerMessage() {
   }
 }
 
+async function sendTaskChatMessage() {
+  const text = els.taskChatInput.value.trim();
+  const channelId = state.taskDrawerChannelId;
+  if (!text || !channelId) return;
+  els.taskChatInput.value = "";
+  state.taskDrawerDraft = "";
+  try {
+    await api("/api/messages", {
+      method: "POST",
+      body: JSON.stringify({ channelId, text }),
+    });
+    state.snapshot = await api("/api/state");
+    markChannelRead(channelId);
+    render();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 els.composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   await sendComposerMessage();
+});
+
+els.taskChatClose.addEventListener("click", () => closeTaskChatDrawer());
+els.taskChatOpenChannel.addEventListener("click", () => {
+  if (!state.taskDrawerChannelId) return;
+  state.view = "channel";
+  state.channelId = state.taskDrawerChannelId;
+  closeTaskChatDrawer({ renderNow: false });
+  markChannelRead(state.channelId);
+  render();
+});
+els.taskChatComposer.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await sendTaskChatMessage();
+});
+els.taskChatInput.addEventListener("input", () => {
+  state.taskDrawerDraft = els.taskChatInput.value;
+});
+els.taskChatInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.isComposing && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    insertTaskChatTextAtCursor("\n");
+    return;
+  }
+  if (event.key === "Enter" && !event.isComposing) {
+    event.preventDefault();
+    void sendTaskChatMessage();
+  }
 });
 
 els.input.addEventListener("input", updateMentionSuggestions);
@@ -1076,10 +1224,7 @@ els.settingsDialog.addEventListener("close", () => {
   els.settingsButton.focus();
 });
 els.taskManagerAdd.addEventListener("click", () => openTaskDialog());
-els.taskLaneAdd.addEventListener("click", () => {
-  els.taskLaneName.value = "";
-  els.taskLaneDialog.showModal();
-});
+els.taskLaneAdd.addEventListener("click", openTaskLaneManager);
 els.skillManagerAdd.addEventListener("click", () => {
   openGlobalSkillDialog();
 });
@@ -1248,13 +1393,29 @@ document.querySelector("#task-create").addEventListener("click", async (event) =
   const laneId = els.taskLane.value;
   if (!title) return;
   try {
-    await api("/api/tasks", { method: "POST", body: JSON.stringify({ title, description, laneId }) });
+    if (state.editingTaskId) {
+      await api(`/api/tasks/${encodeURIComponent(state.editingTaskId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title, description, laneId }),
+      });
+    } else {
+      await api("/api/tasks", { method: "POST", body: JSON.stringify({ title, description, laneId }) });
+    }
     els.taskTitle.value = "";
     els.taskDescription.value = "";
+    state.editingTaskId = "";
+    state.snapshot = await api("/api/state");
+    render();
     els.taskDialog.close();
   } catch (error) {
     alert(error.message);
   }
+});
+
+els.taskDialog.addEventListener("close", () => {
+  state.editingTaskId = "";
+  els.taskDialogTitle.textContent = "Create Task";
+  els.taskSubmit.textContent = "Create";
 });
 
 document.querySelector("#task-lane-create").addEventListener("click", async (event) => {
@@ -1264,18 +1425,64 @@ document.querySelector("#task-lane-create").addEventListener("click", async (eve
   try {
     await api("/api/task-lanes", { method: "POST", body: JSON.stringify({ name }) });
     els.taskLaneName.value = "";
-    els.taskLaneDialog.close();
+    state.snapshot = await api("/api/state");
+    render();
+    renderTaskLaneManager();
+    els.taskLaneName.focus();
   } catch (error) {
     alert(error.message);
   }
 });
 
-function openTaskDialog(preferredLaneID = "") {
-  renderTaskLanePicker(preferredLaneID);
-  els.taskTitle.value = "";
-  els.taskDescription.value = "";
+function openTaskDialog(preferredLaneID = "", task = null) {
+  const selectedLaneID = task?.laneId || preferredLaneID;
+  state.editingTaskId = task?.id || "";
+  renderTaskLanePicker(selectedLaneID);
+  els.taskDialogTitle.textContent = task ? "Edit Task" : "Create Task";
+  els.taskSubmit.textContent = task ? "Save Changes" : "Create";
+  els.taskTitle.value = task?.title || "";
+  els.taskDescription.value = task?.description || "";
   els.taskDialog.showModal();
   els.taskTitle.focus();
+}
+
+function openTaskLaneManager() {
+  els.taskLaneName.value = "";
+  renderTaskLaneManager();
+  els.taskLaneDialog.showModal();
+  els.taskLaneName.focus();
+}
+
+function renderTaskLaneManager() {
+  const lanes = sortedTaskLanes(state.snapshot?.taskLanes || []);
+  const tasks = state.snapshot?.tasks || [];
+  els.taskLaneList.innerHTML = "";
+  if (lanes.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "task-lane-manager-empty";
+    empty.textContent = "No lanes yet.";
+    els.taskLaneList.append(empty);
+    return;
+  }
+  for (const [index, lane] of lanes.entries()) {
+    const count = tasks.filter((task) => task.laneId === lane.id).length;
+    const row = document.createElement("div");
+    row.className = "task-lane-manager-row";
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHTML(lane.name)}</strong>
+        <small>${count} task${count === 1 ? "" : "s"}</small>
+      </div>
+      <div class="task-lane-manager-controls">
+        <button type="button" data-action="move-up" ${index === 0 ? "disabled" : ""}>Up</button>
+        <button type="button" data-action="move-down" ${index === lanes.length - 1 ? "disabled" : ""}>Down</button>
+        <button type="button" data-action="delete-lane" ${lanes.length <= 1 ? "disabled" : ""}>Delete</button>
+      </div>`;
+    row.querySelector("[data-action='move-up']").addEventListener("click", () => moveTaskLane(lane, index - 1));
+    row.querySelector("[data-action='move-down']").addEventListener("click", () => moveTaskLane(lane, index + 1));
+    row.querySelector("[data-action='delete-lane']").addEventListener("click", () => deleteTaskLane(lane));
+    els.taskLaneList.append(row);
+  }
 }
 
 function renderTaskLanePicker(selectedID = "") {
@@ -1311,6 +1518,8 @@ async function moveTaskToLane(taskId, laneId) {
       method: "PATCH",
       body: JSON.stringify({ laneId }),
     });
+    state.snapshot = await api("/api/state");
+    render();
   } catch (error) {
     alert(error.message);
   }
@@ -1324,6 +1533,8 @@ async function updateTaskAssignee(taskId, value) {
       method: "PATCH",
       body: JSON.stringify({ assigneeKind, assigneeId }),
     });
+    state.snapshot = await api("/api/state");
+    render();
   } catch (error) {
     alert(error.message);
   }
@@ -1331,16 +1542,39 @@ async function updateTaskAssignee(taskId, value) {
 
 async function openTaskChannel(task) {
   try {
-    const result = await api(`/api/tasks/${encodeURIComponent(task.id)}/channel`, { method: "POST" });
+    const result = await ensureTaskChannel(task);
     if (result.channel?.id) {
       state.view = "channel";
       state.channelId = result.channel.id;
-      state.snapshot = await api("/api/state");
+      closeTaskChatDrawer({ renderNow: false });
+      markChannelRead(result.channel.id);
       render();
     }
   } catch (error) {
     alert(error.message);
   }
+}
+
+async function openTaskChatDrawer(task) {
+  try {
+    const result = await ensureTaskChannel(task);
+    if (result.channel?.id) {
+      state.taskDrawerTaskId = result.task?.id || task.id;
+      state.taskDrawerChannelId = result.channel.id;
+      state.taskDrawerDraft = "";
+      markChannelRead(result.channel.id);
+      render();
+      els.taskChatInput.focus();
+    }
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function ensureTaskChannel(task) {
+  const result = await api(`/api/tasks/${encodeURIComponent(task.id)}/channel`, { method: "POST" });
+  state.snapshot = await api("/api/state");
+  return result;
 }
 
 function viewTaskOnBoard(taskId) {
@@ -1362,6 +1596,23 @@ async function deleteTaskLane(lane) {
   if (!window.confirm(`Delete lane "${lane.name}"? Tasks in this lane move to another lane.`)) return;
   try {
     await api(`/api/task-lanes/${encodeURIComponent(lane.id)}`, { method: "DELETE" });
+    state.snapshot = await api("/api/state");
+    render();
+    if (els.taskLaneDialog.open) renderTaskLaneManager();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function moveTaskLane(lane, position) {
+  try {
+    await api(`/api/task-lanes/${encodeURIComponent(lane.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ position }),
+    });
+    state.snapshot = await api("/api/state");
+    render();
+    if (els.taskLaneDialog.open) renderTaskLaneManager();
   } catch (error) {
     alert(error.message);
   }
@@ -1521,7 +1772,6 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
         </div>
         <div class="task-lane-actions">
           <button class="task-lane-new" type="button" data-action="new-task">+</button>
-          <button class="item-delete visible" type="button" data-action="delete-lane" aria-label="Delete lane ${escapeHTML(lane.name)}" ${orderedLanes.length <= 1 ? "disabled" : ""}>x</button>
         </div>
       </header>
       <div class="task-lane-body" data-lane-drop="${escapeHTML(lane.id)}"></div>`;
@@ -1539,7 +1789,6 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
     });
 
     laneEl.querySelector("[data-action='new-task']").addEventListener("click", () => openTaskDialog(lane.id));
-    laneEl.querySelector("[data-action='delete-lane']").addEventListener("click", () => deleteTaskLane(lane));
 
     if (laneTasks.length === 0) {
       const empty = document.createElement("div");
@@ -1551,6 +1800,7 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
     for (const task of laneTasks) {
       const card = document.createElement("article");
       card.className = "task-card";
+      card.classList.toggle("drawer-open", state.taskDrawerTaskId === task.id);
       card.draggable = true;
       card.dataset.taskId = task.id;
       const channel = task.channelId ? channelById.get(task.channelId) : null;
@@ -1570,9 +1820,14 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
         </label>
         <div class="task-card-controls">
           <select class="task-status-select" aria-label="Move task ${escapeHTML(task.title)}">${taskLaneOptionsHTML(orderedLanes, task.laneId)}</select>
-          <button type="button" class="item-action visible" data-action="discuss">${channel ? "Open" : "Discuss"}</button>
+          <button type="button" class="item-action visible" data-action="edit-task">Edit</button>
+          <button type="button" class="item-action visible" data-action="discuss">Chat</button>
           <button type="button" class="item-delete visible" data-action="delete-task" aria-label="Delete task ${escapeHTML(task.title)}">x</button>
         </div>`;
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button, select, textarea, input, label")) return;
+        void openTaskChatDrawer(task);
+      });
       card.addEventListener("dragstart", (event) => {
         state.taskDragId = task.id;
         event.dataTransfer.effectAllowed = "move";
@@ -1589,7 +1844,8 @@ function renderTaskManager(lanes, tasks, channels, users, agents) {
       card.querySelector(".task-owner-select").addEventListener("change", (event) => {
         void updateTaskAssignee(task.id, event.target.value);
       });
-      card.querySelector("[data-action='discuss']").addEventListener("click", () => openTaskChannel(task));
+      card.querySelector("[data-action='edit-task']").addEventListener("click", () => openTaskDialog(task.laneId, task));
+      card.querySelector("[data-action='discuss']").addEventListener("click", () => openTaskChatDrawer(task));
       card.querySelector("[data-action='delete-task']").addEventListener("click", () => deleteTask(task));
       body.append(card);
     }
@@ -1841,7 +2097,7 @@ async function deleteUser(user) {
 
 function insertMention(name) {
   const suffix = els.input.value && !els.input.value.endsWith(" ") ? " " : "";
-  els.input.value += `${suffix}@${name.replace(/\s+/g, "-")} `;
+  els.input.value += `${suffix}${mentionHandle(name)} `;
   els.input.focus();
 }
 
@@ -1854,6 +2110,25 @@ function insertTextAtCursor(text) {
   const cursor = start + text.length;
   els.input.setSelectionRange(cursor, cursor);
   els.input.focus();
+}
+
+function insertTaskChatMention(name) {
+  const suffix = els.taskChatInput.value && !els.taskChatInput.value.endsWith(" ") ? " " : "";
+  els.taskChatInput.value += `${suffix}${mentionHandle(name)} `;
+  state.taskDrawerDraft = els.taskChatInput.value;
+  els.taskChatInput.focus();
+}
+
+function insertTaskChatTextAtCursor(text) {
+  const start = els.taskChatInput.selectionStart || 0;
+  const end = els.taskChatInput.selectionEnd || start;
+  const before = els.taskChatInput.value.slice(0, start);
+  const after = els.taskChatInput.value.slice(end);
+  els.taskChatInput.value = `${before}${text}${after}`;
+  const cursor = start + text.length;
+  els.taskChatInput.setSelectionRange(cursor, cursor);
+  state.taskDrawerDraft = els.taskChatInput.value;
+  els.taskChatInput.focus();
 }
 
 function showHoverTooltip(target) {
@@ -2090,25 +2365,45 @@ function formatTaskTime(value) {
 }
 
 function linkMentions(text) {
-  return text.replace(/@([^\s@<>()\[\]{}.,，。:：;；!?！？]+)/g, (full, token) => {
+  return text.replace(mentionTokenRegex(), (full, token) => {
     const participant = participantForMention(token);
     if (!participant) return `<strong>${full}</strong>`;
-    return `<strong class="mention-profile profile-anchor" ${profileAnchorAttrs(participant.kind, participant.value)} tabindex="0">${full}</strong>`;
+    const display = `@${escapeHTML(decodeMentionToken(token))}`;
+    return `<strong class="mention-profile profile-anchor" ${profileAnchorAttrs(participant.kind, participant.value)} tabindex="0">${display}</strong>`;
   });
 }
 
 function participantForMention(token = "") {
   if (!state.snapshot) return null;
-  const normalized = mentionSlug(token);
-  const agent = (state.snapshot.agents || []).find((candidate) => mentionSlug(candidate.name) === normalized || mentionSlug(candidate.id) === normalized);
+  const normalized = mentionKey(token);
+  const agent = (state.snapshot.agents || []).find((candidate) => mentionKey(candidate.name) === normalized || mentionKey(candidate.id) === normalized);
   if (agent) return { kind: "agent", value: agent };
-  const user = (state.snapshot.users || []).find((candidate) => mentionSlug(candidate.name) === normalized || mentionSlug(candidate.id) === normalized);
+  const user = (state.snapshot.users || []).find((candidate) => mentionKey(candidate.name) === normalized || mentionKey(candidate.id) === normalized);
   if (user) return { kind: "human", value: user };
   return null;
 }
 
-function mentionSlug(value = "") {
-  return value.replace(/^@/, "").replace(/\s+/g, "-").toLowerCase();
+function mentionTokenRegex() {
+  return /@([^\s@<>()\[\]{}.,，。:：;；!?！？]+)/g;
+}
+
+function mentionHandle(name = "") {
+  const value = name.trim();
+  if (!value) return "@";
+  if (/[\s@<>()\[\]{}.,，。:：;；!?！？%]/.test(value)) return `@${encodeURIComponent(value)}`;
+  return `@${value}`;
+}
+
+function mentionKey(value = "") {
+  return decodeMentionToken(value.replace(/^@/, "")).trim().toLowerCase();
+}
+
+function decodeMentionToken(value = "") {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function profileAnchorAttrs(kind, value) {

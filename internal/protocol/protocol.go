@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -171,6 +172,17 @@ type TaskAssignedPayload struct {
 	MessageID string `json:"messageId"`
 }
 
+type TaskOwnerEventPayload struct {
+	Agent             Agent  `json:"agent"`
+	ChannelID         string `json:"channelId"`
+	Task              Task   `json:"task"`
+	Message           string `json:"message"`
+	PreviousOwnerKind string `json:"previousOwnerKind,omitempty"`
+	PreviousOwnerID   string `json:"previousOwnerId,omitempty"`
+	CurrentOwnerKind  string `json:"currentOwnerKind,omitempty"`
+	CurrentOwnerID    string `json:"currentOwnerId,omitempty"`
+}
+
 type AgentReplyPayload struct {
 	AgentID     string   `json:"agentId"`
 	ChannelID   string   `json:"channelId"`
@@ -240,24 +252,27 @@ func DecodePayload[T any](env Envelope) (T, error) {
 	return out, err
 }
 
-var mentionRE = regexp.MustCompile(`(?i)@([\p{L}\p{N}][\p{L}\p{N}_-]{0,80})`)
+var mentionRE = regexp.MustCompile(`@([^\s@<>()\[\]{}.,，。:：;；!?！？]+)`)
 
 func ExtractMentions(text string, agents []Agent) []string {
-	matches := mentionRE.FindAllStringSubmatch(strings.ToLower(text), -1)
+	matches := mentionRE.FindAllStringSubmatch(text, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 
 	wanted := make(map[string]bool)
 	for _, m := range matches {
-		wanted[m[1]] = true
+		token := mentionKey(m[1])
+		if token != "" {
+			wanted[token] = true
+		}
 	}
 
 	var ids []string
 	seen := make(map[string]bool)
 	for _, agent := range agents {
-		name := mentionSlug(agent.Name)
-		id := mentionSlug(agent.ID)
+		name := mentionKey(agent.Name)
+		id := mentionKey(agent.ID)
 		shortID := strings.TrimPrefix(id, "agent_")
 		if wanted[name] || wanted[id] || wanted[shortID] {
 			if !seen[agent.ID] {
@@ -269,8 +284,27 @@ func ExtractMentions(text string, agents []Agent) []string {
 	return ids
 }
 
-func mentionSlug(value string) string {
-	return strings.ToLower(strings.Join(strings.Fields(value), "-"))
+func MentionHandle(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "@"
+	}
+	if mentionNeedsEncoding(name) {
+		return "@" + url.PathEscape(name)
+	}
+	return "@" + name
+}
+
+func mentionKey(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "@"))
+	if decoded, err := url.PathUnescape(value); err == nil {
+		value = decoded
+	}
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func mentionNeedsEncoding(value string) bool {
+	return strings.ContainsAny(value, " \t\r\n@<>()[]{}.,，。:：;；!?！？%")
 }
 
 func TrimEvents(events []Envelope, limit int) []Envelope {
