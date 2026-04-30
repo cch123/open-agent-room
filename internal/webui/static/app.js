@@ -25,6 +25,12 @@ hoverTooltip.hidden = true;
 document.body.append(hoverTooltip);
 let hoverTooltipTarget = null;
 
+const profilePopover = document.createElement("div");
+profilePopover.className = "profile-popover";
+profilePopover.hidden = true;
+document.body.append(profilePopover);
+let profilePopoverTarget = null;
+
 const runtimeModels = {
   codex: [
     ["", "CLI default"],
@@ -200,7 +206,10 @@ function renderUsers(users) {
     const item = document.createElement("div");
     item.className = "human-item";
     item.title = user.id === currentUserId ? `${user.name} - current human` : `${user.name} - registered human`;
-    item.dataset.tooltip = user.id === currentUserId ? `${user.name}\ncurrent human` : `${user.name}\nhuman participant`;
+    item.tabIndex = 0;
+    item.dataset.profileKind = "human";
+    item.dataset.profileId = user.id;
+    item.dataset.profileName = user.name;
     item.innerHTML = `<span class="avatar" style="background:${user.color || "#2563eb"}">${initials(user.name)}</span><span><strong>${escapeHTML(user.name)}</strong><span class="human-meta">${user.id === currentUserId ? "current human" : "human participant"}</span></span>`;
     row.append(item);
 
@@ -230,7 +239,9 @@ function renderAgents(agents) {
     const promptMeta = agent.systemPrompt ? " · system prompt" : "";
     const meta = `${agent.status} · ${runtimeLabel(agent)}${skillMeta}${promptMeta} · ${agent.persona}`;
     button.title = `${agent.name} - ${meta}`;
-    button.dataset.tooltip = `${agent.name}\n${meta}`;
+    button.dataset.profileKind = "agent";
+    button.dataset.profileId = agent.id;
+    button.dataset.profileName = agent.name;
     button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
       insertMention(agent.name);
@@ -255,21 +266,26 @@ function renderAgents(agents) {
 }
 
 function renderMessages() {
-  const { messages, agents } = state.snapshot;
+  const { messages, agents, users } = state.snapshot;
   const byAgent = new Map(agents.map((agent) => [agent.id, agent]));
+  const byUser = new Map((users || []).map((user) => [user.id, user]));
   const visible = messages.filter((message) => message.channelId === state.channelId);
   els.messages.innerHTML = "";
   for (const message of visible) {
     const item = document.createElement("article");
     item.className = `message ${message.kind || ""} ${message.authorKind || ""}`;
     const agent = byAgent.get(message.authorId);
-    const color = agent?.color || (message.authorKind === "human" ? "#2563eb" : "#64748b");
+    const user = byUser.get(message.authorId);
+    const color = agent?.color || user?.color || (message.authorKind === "human" ? "#2563eb" : "#64748b");
     const content = renderMessageContent(message);
+    const profileAttrs = message.authorKind === "agent" || message.authorKind === "human"
+      ? `data-profile-kind="${escapeHTML(message.authorKind)}" data-profile-id="${escapeHTML(message.authorId)}" data-profile-name="${escapeHTML(message.authorName)}" tabindex="0"`
+      : "";
     item.innerHTML = `
-      <span class="avatar" style="background:${color}">${initials(message.authorName)}</span>
+      <span class="avatar profile-anchor" style="background:${color}" ${profileAttrs}>${initials(message.authorName)}</span>
       <div>
         <div class="message-header">
-          <span class="message-name">${escapeHTML(message.authorName)}</span>
+          <span class="message-name profile-anchor" ${profileAttrs}>${escapeHTML(message.authorName)}</span>
           <span class="message-kind">${escapeHTML(message.authorKind)}</span>
           <time class="message-time">${formatTime(message.timestamp)}</time>
         </div>
@@ -526,6 +542,9 @@ function renderMentions(agents) {
     button.type = "button";
     button.className = "mention-button";
     button.textContent = `@${agent.name}`;
+    button.dataset.profileKind = "agent";
+    button.dataset.profileId = agent.id;
+    button.dataset.profileName = agent.name;
     button.addEventListener("click", () => insertMention(agent.name));
     els.mentionRow.append(button);
   }
@@ -596,7 +615,7 @@ function activeMentionToken() {
 
 function mentionSuggestionHTML(agent, selected) {
   return `
-    <button type="button" class="mention-suggestion ${selected ? "active" : ""}" data-agent-id="${escapeHTML(agent.id)}">
+    <button type="button" class="mention-suggestion ${selected ? "active" : ""}" data-agent-id="${escapeHTML(agent.id)}" data-profile-kind="agent" data-profile-id="${escapeHTML(agent.id)}" data-profile-name="${escapeHTML(agent.name)}">
       <span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span>
       <span>
         <strong>@${escapeHTML(agent.name)}</strong>
@@ -768,15 +787,27 @@ els.input.addEventListener("blur", () => {
 });
 
 document.addEventListener("mouseover", (event) => {
+  const profileTarget = event.target.closest?.("[data-profile-kind][data-profile-id]");
+  if (profileTarget) {
+    hideHoverTooltip();
+    showProfilePopover(profileTarget);
+    return;
+  }
   const target = event.target.closest?.("[data-tooltip]");
   if (target) showHoverTooltip(target);
 });
 
 document.addEventListener("mousemove", () => {
+  if (profilePopoverTarget) positionFloatingCard(profilePopover, profilePopoverTarget, 12);
   if (hoverTooltipTarget) positionHoverTooltip(hoverTooltipTarget);
 });
 
 document.addEventListener("mouseout", (event) => {
+  if (profilePopoverTarget) {
+    const related = event.relatedTarget;
+    if (related instanceof Node && profilePopoverTarget.contains(related)) return;
+    hideProfilePopover();
+  }
   if (!hoverTooltipTarget) return;
   const related = event.relatedTarget;
   if (related instanceof Node && hoverTooltipTarget.contains(related)) return;
@@ -784,13 +815,28 @@ document.addEventListener("mouseout", (event) => {
 });
 
 document.addEventListener("focusin", (event) => {
+  const profileTarget = event.target.closest?.("[data-profile-kind][data-profile-id]");
+  if (profileTarget) {
+    hideHoverTooltip();
+    showProfilePopover(profileTarget);
+    return;
+  }
   const target = event.target.closest?.("[data-tooltip]");
   if (target) showHoverTooltip(target);
 });
 
-document.addEventListener("focusout", hideHoverTooltip);
-window.addEventListener("resize", hideHoverTooltip);
-window.addEventListener("scroll", hideHoverTooltip, true);
+document.addEventListener("focusout", () => {
+  hideProfilePopover();
+  hideHoverTooltip();
+});
+window.addEventListener("resize", () => {
+  hideProfilePopover();
+  hideHoverTooltip();
+});
+window.addEventListener("scroll", () => {
+  hideProfilePopover();
+  hideHoverTooltip();
+}, true);
 
 els.assignButton.addEventListener("click", async () => {
   const task = els.assignTask.value.trim();
@@ -1348,6 +1394,103 @@ function hideHoverTooltip() {
   hoverTooltip.hidden = true;
 }
 
+function showProfilePopover(target) {
+  const profile = participantProfile(target);
+  if (!profile) return;
+  profilePopoverTarget = target;
+  profilePopover.innerHTML = profilePopoverHTML(profile);
+  profilePopover.hidden = false;
+  positionFloatingCard(profilePopover, target, 12);
+}
+
+function hideProfilePopover() {
+  profilePopoverTarget = null;
+  profilePopover.hidden = true;
+}
+
+function positionFloatingCard(card, target, gap = 8) {
+  const rect = target.getBoundingClientRect();
+  const width = Math.min(card.offsetWidth || 320, window.innerWidth - 24);
+  const rightSide = rect.right + gap;
+  const left = rightSide + width <= window.innerWidth - 12
+    ? rightSide
+    : Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
+  const top = Math.min(Math.max(12, rect.top), Math.max(12, window.innerHeight - card.offsetHeight - 12));
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+}
+
+function participantProfile(target) {
+  if (!state.snapshot) return null;
+  const kind = target.dataset.profileKind;
+  const id = target.dataset.profileId;
+  if (kind === "agent") {
+    const agent = (state.snapshot.agents || []).find((candidate) => candidate.id === id);
+    if (agent) return { kind: "agent", value: agent };
+  }
+  if (kind === "human") {
+    const user = (state.snapshot.users || []).find((candidate) => candidate.id === id);
+    if (user) return { kind: "human", value: user };
+  }
+  if (!target.dataset.profileName) return null;
+  return {
+    kind,
+    value: {
+      id,
+      name: target.dataset.profileName,
+      color: kind === "human" ? "#2563eb" : "#64748b",
+    },
+  };
+}
+
+function profilePopoverHTML(profile) {
+  if (profile.kind === "agent") return agentProfileHTML(profile.value);
+  return humanProfileHTML(profile.value);
+}
+
+function agentProfileHTML(agent) {
+  const skills = agent.skills || [];
+  const capabilities = agent.capabilities || [];
+  const skillPreview = skills.slice(0, 3).map((skill) => skill.name).join(", ");
+  const capabilityPreview = capabilities.slice(0, 4).join(", ");
+  return `
+    <div class="profile-head">
+      <span class="avatar profile-avatar" style="background:${agent.color || "#64748b"}">${initials(agent.name)}</span>
+      <span>
+        <strong>${escapeHTML(agent.name)}</strong>
+        <small>Agent · ${escapeHTML(agent.status || "idle")}</small>
+      </span>
+    </div>
+    <div class="profile-grid">
+      <span>Runtime</span><strong>${escapeHTML(runtimeLabel(agent))}</strong>
+      <span>Skills</span><strong>${skills.length}${skillPreview ? ` · ${escapeHTML(skillPreview)}` : ""}</strong>
+      <span>Memory</span><strong>${(agent.memory || []).length} items</strong>
+      <span>System</span><strong>${agent.systemPrompt ? "prompt configured" : "default prompt"}</strong>
+    </div>
+    ${agent.persona ? `<p class="profile-note">${escapeHTML(agent.persona)}</p>` : ""}
+    ${capabilityPreview ? `<div class="profile-tags">${capabilities.slice(0, 4).map((capability) => `<span>${escapeHTML(capability)}</span>`).join("")}</div>` : ""}
+  `;
+}
+
+function humanProfileHTML(user) {
+  const currentUserId = state.snapshot?.currentUserId || "usr_you";
+  const role = user.id === currentUserId ? "Current human" : "Human participant";
+  return `
+    <div class="profile-head">
+      <span class="avatar profile-avatar" style="background:${user.color || "#2563eb"}">${initials(user.name)}</span>
+      <span>
+        <strong>${escapeHTML(user.name)}</strong>
+        <small>${role}</small>
+      </span>
+    </div>
+    <div class="profile-grid">
+      <span>Role</span><strong>${role}</strong>
+      <span>ID</span><strong>${escapeHTML(user.id || "unknown")}</strong>
+      <span>Status</span><strong>${user.id === currentUserId ? "active in this workspace" : "registered"}</strong>
+    </div>
+  `;
+}
+
 function populateModelOptions(runtime) {
   const options = runtimeModels[runtime] || runtimeModels.codex;
   els.agentModel.innerHTML = "";
@@ -1434,7 +1577,29 @@ function formatTime(value) {
 }
 
 function linkMentions(text) {
-  return text.replace(/@([a-z0-9][a-z0-9_-]{0,40})/gi, "<strong>@$1</strong>");
+  return text.replace(/@([^\s@<>()\[\]{}.,，。:：;；!?！？]+)/g, (full, token) => {
+    const participant = participantForMention(token);
+    if (!participant) return `<strong>${full}</strong>`;
+    return `<strong class="mention-profile profile-anchor" ${profileAnchorAttrs(participant.kind, participant.value)} tabindex="0">${full}</strong>`;
+  });
+}
+
+function participantForMention(token = "") {
+  if (!state.snapshot) return null;
+  const normalized = mentionSlug(token);
+  const agent = (state.snapshot.agents || []).find((candidate) => mentionSlug(candidate.name) === normalized || mentionSlug(candidate.id) === normalized);
+  if (agent) return { kind: "agent", value: agent };
+  const user = (state.snapshot.users || []).find((candidate) => mentionSlug(candidate.name) === normalized || mentionSlug(candidate.id) === normalized);
+  if (user) return { kind: "human", value: user };
+  return null;
+}
+
+function mentionSlug(value = "") {
+  return value.replace(/^@/, "").replace(/\s+/g, "-").toLowerCase();
+}
+
+function profileAnchorAttrs(kind, value) {
+  return `data-profile-kind="${escapeHTML(kind)}" data-profile-id="${escapeHTML(value.id || "")}" data-profile-name="${escapeHTML(value.name || "")}"`;
 }
 
 function renderMarkdown(text = "") {
