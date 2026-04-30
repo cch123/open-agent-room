@@ -12,6 +12,7 @@ const state = {
   skillAgentId: "",
   skillDialogMode: "agent",
   skillSearch: "",
+  skillTagFilter: "",
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
@@ -58,6 +59,7 @@ const els = {
   skillManagerCount: document.querySelector("#skill-manager-count"),
   skillManagerAdd: document.querySelector("#skill-manager-add"),
   skillSearch: document.querySelector("#skill-search"),
+  skillTagFilter: document.querySelector("#skill-tag-filter"),
   skillManagerList: document.querySelector("#skill-manager-list"),
   composer: document.querySelector("#composer"),
   input: document.querySelector("#message-input"),
@@ -90,6 +92,7 @@ const els = {
   skillAttach: document.querySelector("#skill-attach"),
   skillName: document.querySelector("#skill-name"),
   skillSource: document.querySelector("#skill-source"),
+  skillTags: document.querySelector("#skill-tags"),
   skillFile: document.querySelector("#skill-file"),
   skillContent: document.querySelector("#skill-content"),
   channelDialog: document.querySelector("#channel-dialog"),
@@ -824,6 +827,10 @@ els.skillSearch.addEventListener("input", () => {
   state.skillSearch = els.skillSearch.value.trim();
   renderSkillManager(state.snapshot?.skills || [], state.snapshot?.agents || []);
 });
+els.skillTagFilter.addEventListener("change", () => {
+  state.skillTagFilter = els.skillTagFilter.value;
+  renderSkillManager(state.snapshot?.skills || [], state.snapshot?.agents || []);
+});
 
 els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
 els.agentModel.addEventListener("change", updateCustomModelVisibility);
@@ -884,21 +891,23 @@ document.querySelector("#skill-import").addEventListener("click", async (event) 
   const name = els.skillName.value.trim();
   const source = els.skillSource.value.trim();
   const content = els.skillContent.value.trim();
+  const tags = parseSkillTags(els.skillTags.value);
   if (!name || !content) return;
   if (state.skillDialogMode === "global") {
-    await api("/api/skills", { method: "POST", body: JSON.stringify({ name, source, content }) });
+    await api("/api/skills", { method: "POST", body: JSON.stringify({ name, source, content, tags }) });
   } else {
     const agentId = state.skillAgentId;
     if (!agentId) return;
     await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
       method: "POST",
-      body: JSON.stringify({ name, source, content }),
+      body: JSON.stringify({ name, source, content, tags }),
     });
   }
   state.snapshot = await api("/api/state");
   render();
   els.skillName.value = "";
   els.skillSource.value = "";
+  els.skillTags.value = "";
   els.skillFile.value = "";
   els.skillContent.value = "";
   renderSkillDialog();
@@ -947,6 +956,7 @@ function openSkillDialog(agent) {
   state.skillAgentId = agent.id;
   els.skillName.value = "";
   els.skillSource.value = "";
+  els.skillTags.value = "";
   els.skillFile.value = "";
   els.skillContent.value = "";
   renderSkillDialog();
@@ -958,6 +968,7 @@ function openGlobalSkillDialog() {
   state.skillAgentId = "";
   els.skillName.value = "";
   els.skillSource.value = "";
+  els.skillTags.value = "";
   els.skillFile.value = "";
   els.skillContent.value = "";
   renderSkillDialog();
@@ -966,10 +977,12 @@ function openGlobalSkillDialog() {
 
 function renderSkillManager(skills, agents) {
   if (els.skillSearch.value !== state.skillSearch) els.skillSearch.value = state.skillSearch;
+  renderSkillTagFilter(skills);
   const query = state.skillSearch.toLowerCase();
   const visible = skills.filter((skill) => {
+    if (state.skillTagFilter && !(skill.tags || []).includes(state.skillTagFilter)) return false;
     if (!query) return true;
-    return [skill.name, skill.source, skill.content]
+    return [skill.name, skill.source, skill.content, ...(skill.tags || [])]
       .join("\n")
       .toLowerCase()
       .includes(query);
@@ -1004,7 +1017,8 @@ function renderSkillManager(skills, agents) {
       </div>
       <button class="skill-manager-copy" type="button">
         <strong>${escapeHTML(skill.name)}</strong>
-        <span>${escapeHTML(skill.source || "manual import")} · ${skill.content ? `${skill.content.length} chars` : "empty"}</span>
+        <span>${escapeHTML(skill.source || "manual import")} · ${skill.content ? `${skill.content.length} chars` : "empty"}${skill.tags?.length ? ` · ${skill.tags.length} tags` : ""}</span>
+        ${skillTagsHTML(skill)}
         <small>${escapeHTML(skillExcerpt(skill.content))}</small>
       </button>
       <div class="skill-manager-actions">
@@ -1016,6 +1030,25 @@ function renderSkillManager(skills, agents) {
     row.querySelector("[data-action='delete']").addEventListener("click", () => deleteGlobalSkill(skill));
     els.skillManagerList.append(row);
   }
+}
+
+function renderSkillTagFilter(skills) {
+  const tags = [...new Set(skills.flatMap((skill) => skill.tags || []))].sort();
+  if (state.skillTagFilter && !tags.includes(state.skillTagFilter)) {
+    state.skillTagFilter = "";
+  }
+  els.skillTagFilter.innerHTML = "";
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "All tags";
+  els.skillTagFilter.append(all);
+  for (const tag of tags) {
+    const option = document.createElement("option");
+    option.value = tag;
+    option.textContent = `#${tag}`;
+    els.skillTagFilter.append(option);
+  }
+  els.skillTagFilter.value = state.skillTagFilter;
 }
 
 function skillUsage(skill, agents) {
@@ -1034,9 +1067,16 @@ function skillExcerpt(content = "") {
   return compacted.slice(0, 180) || "No content preview.";
 }
 
+function skillTagsHTML(skill) {
+  const tags = skill.tags || [];
+  if (tags.length === 0) return "";
+  return `<span class="skill-tags">${tags.map((tag) => `<span class="skill-tag">#${escapeHTML(tag)}</span>`).join("")}</span>`;
+}
+
 function openSkillContent(skill, meta = "Library skill") {
   els.markdownDialogTitle.textContent = skill.name || "Imported skill";
-  els.markdownDialogMeta.textContent = `${meta} · ${skill.source || "manual import"}`;
+  const tags = (skill.tags || []).map((tag) => `#${tag}`).join(" ");
+  els.markdownDialogMeta.textContent = `${meta} · ${skill.source || "manual import"}${tags ? ` · ${tags}` : ""}`;
   els.markdownDialogBody.innerHTML = renderMarkdown(skill.content || "");
   els.markdownDialog.showModal();
 }
@@ -1074,7 +1114,7 @@ function renderSkillDialog() {
     row.className = "skill-row";
     const copy = document.createElement("div");
     copy.className = "skill-copy";
-    copy.innerHTML = `<strong>${escapeHTML(skill.name)}</strong><span>${escapeHTML(skill.source || "manual import")} · ${skill.content ? `${skill.content.length} chars` : "empty"}</span>`;
+    copy.innerHTML = `<strong>${escapeHTML(skill.name)}</strong><span>${escapeHTML(skill.source || "manual import")} · ${skill.content ? `${skill.content.length} chars` : "empty"}</span>${skillTagsHTML(skill)}`;
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "item-delete visible";
@@ -1094,7 +1134,8 @@ function renderSkillAttachOptions(agent) {
   for (const skill of available) {
     const option = document.createElement("option");
     option.value = skill.id;
-    option.textContent = `${skill.name} · ${skill.source || "manual import"}`;
+    const tags = (skill.tags || []).map((tag) => `#${tag}`).join(" ");
+    option.textContent = `${skill.name} · ${skill.source || "manual import"}${tags ? ` · ${tags}` : ""}`;
     els.skillAttachSelect.append(option);
   }
   els.skillAttach.disabled = available.length === 0;
@@ -1211,6 +1252,15 @@ function parseInitialSkills(text = "") {
         content: block,
       };
     });
+}
+
+function parseSkillTags(text = "") {
+  const tags = [];
+  for (const raw of text.split(/[,\n]/)) {
+    const tag = raw.trim().replace(/^#/, "").toLowerCase().replace(/\s+/g, "-").replace(/^-+|-+$/g, "");
+    if (tag && !tags.includes(tag)) tags.push(tag.slice(0, 32).replace(/-+$/g, ""));
+  }
+  return tags.filter(Boolean);
 }
 
 function updateCustomModelVisibility() {

@@ -578,7 +578,7 @@ h2 {
 
 .skill-manager-filters {
   display: grid;
-  grid-template-columns: minmax(220px, 420px);
+  grid-template-columns: minmax(220px, 420px) minmax(150px, 220px);
   gap: 12px;
   padding: 14px 0;
 }
@@ -653,12 +653,48 @@ h2 {
 
 .skill-manager-copy {
   display: grid;
-  gap: 3px;
+  gap: 5px;
   width: 100%;
   padding: 0;
   background: transparent;
   color: var(--text);
   text-align: left;
+}
+
+.skill-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.skill-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 140px;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid rgba(49, 95, 122, 0.16);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-manager-copy .skill-tags,
+.skill-copy .skill-tags {
+  display: flex;
+  overflow: visible;
+  white-space: normal;
+}
+
+.skill-manager-copy .skill-tag,
+.skill-copy .skill-tag {
+  display: inline-flex;
 }
 
 .skill-manager-copy:hover,
@@ -1139,6 +1175,16 @@ dialog::backdrop {
 .skill-copy span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.skill-copy .skill-tags {
+  display: flex;
+  overflow: visible;
+  white-space: normal;
+}
+
+.skill-copy .skill-tag {
+  display: inline-flex;
 }
 
 .dialog-body label {

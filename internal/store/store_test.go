@@ -114,7 +114,7 @@ func TestAddAndDeleteAgentSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skill, err := st.AddAgentSkill("agent_ada", "Review Discipline", "SKILL.md", "Lead with defects.")
+	skill, err := st.AddAgentSkill("agent_ada", "Review Discipline", "SKILL.md", "Lead with defects.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestGlobalSkillCanAttachToMultipleAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.")
+	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestDeleteGlobalSkillDetachesFromAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.")
+	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +198,28 @@ func TestDeleteGlobalSkillDetachesFromAgents(t *testing.T) {
 	for _, agent := range snapshot.Agents {
 		if len(agent.Skills) != 0 {
 			t.Fatalf("deleted global skill remained attached to %s: %+v", agent.ID, agent.Skills)
+		}
+	}
+}
+
+func TestAddSkillNormalizesTags(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.", []string{" Review ", "#Go Workflow", "review", " "})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"review", "go-workflow"}
+	if len(skill.Tags) != len(want) {
+		t.Fatalf("tags = %v, want %v", skill.Tags, want)
+	}
+	for i := range want {
+		if skill.Tags[i] != want[i] {
+			t.Fatalf("tags = %v, want %v", skill.Tags, want)
 		}
 	}
 }

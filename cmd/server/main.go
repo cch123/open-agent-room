@@ -331,15 +331,16 @@ func (a *app) handleSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name    string `json:"name"`
-		Source  string `json:"source"`
-		Content string `json:"content"`
+		Name    string   `json:"name"`
+		Source  string   `json:"source"`
+		Content string   `json:"content"`
+		Tags    []string `json:"tags"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	skill, err := a.store.AddSkill(req.Name, req.Source, req.Content)
+	skill, err := a.store.AddSkill(req.Name, req.Source, req.Content, req.Tags)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -437,10 +438,11 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 	}
 	if agentID, ok := parseAgentSkillPostPath(path); ok {
 		var req struct {
-			SkillID string `json:"skillId"`
-			Name    string `json:"name"`
-			Source  string `json:"source"`
-			Content string `json:"content"`
+			SkillID string   `json:"skillId"`
+			Name    string   `json:"name"`
+			Source  string   `json:"source"`
+			Content string   `json:"content"`
+			Tags    []string `json:"tags"`
 		}
 		if err := readJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -454,7 +456,7 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(req.SkillID) != "" {
 			skill, err = a.store.AttachAgentSkill(agentID, req.SkillID)
 		} else {
-			skill, err = a.store.AddAgentSkill(agentID, req.Name, req.Source, req.Content)
+			skill, err = a.store.AddAgentSkill(agentID, req.Name, req.Source, req.Content, req.Tags)
 			eventType = "agent.skill.created_and_attached"
 		}
 		if err != nil {

@@ -90,7 +90,7 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 15. Agent replies are visible messages and also become protocol events in the inspector.
 16. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
 17. Each agent can carry a `systemPrompt`; the daemon includes it before task context for that agent only.
-18. Skills live in the global skill library; each agent carries `skillIds`, and snapshots hydrate the attached `skills` for daemon dispatch.
+18. Skills live in the global skill library and can carry normalized `tags`; each agent carries `skillIds`, and snapshots hydrate the attached `skills` for daemon dispatch.
 19. The daemon includes only the hydrated skills attached to the invoked agent in the runner request and prompt.
 20. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
 

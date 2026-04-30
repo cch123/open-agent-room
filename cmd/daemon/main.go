@@ -440,6 +440,9 @@ func buildRunnerPrompt(request runnerRequest) string {
 			if skill.Source != "" {
 				fmt.Fprintf(&b, " (%s)", skill.Source)
 			}
+			if len(skill.Tags) > 0 {
+				fmt.Fprintf(&b, " [%s]", strings.Join(skill.Tags, ", "))
+			}
 			b.WriteString("\n")
 			b.WriteString(compact(skill.Content, 4000))
 			b.WriteString("\n\n")

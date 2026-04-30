@@ -76,7 +76,11 @@
           <div class="skill-manager-filters">
             <label>
               Search
-              <input id="skill-search" autocomplete="off" placeholder="Search skill name, source, content" />
+              <input id="skill-search" autocomplete="off" placeholder="Search skill name, source, tag, content" />
+            </label>
+            <label>
+              Tag
+              <select id="skill-tag-filter"></select>
             </label>
           </div>
           <div id="skill-manager-list" class="skill-manager-list"></div>
@@ -201,6 +205,10 @@
         <label>
           Source
           <input id="skill-source" autocomplete="off" placeholder="SKILL.md or internal note" />
+        </label>
+        <label>
+          Tags
+          <input id="skill-tags" autocomplete="off" placeholder="review, go, frontend" />
         </label>
         <label>
           Import file

@@ -65,11 +65,12 @@ type MemoryItem struct {
 }
 
 type AgentSkill struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Source    string `json:"source,omitempty"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"createdAt"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Source    string   `json:"source,omitempty"`
+	Content   string   `json:"content"`
+	Tags      []string `json:"tags,omitempty"`
+	CreatedAt string   `json:"createdAt"`
 }
 
 type Agent struct {

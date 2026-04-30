@@ -317,10 +317,10 @@ func (s *Store) UpdateChannelDefaultAgent(channelID, agentID string) (protocol.C
 	return protocol.Channel{}, errors.New("channel not found")
 }
 
-func (s *Store) AddSkill(name, source, content string) (protocol.AgentSkill, error) {
+func (s *Store) AddSkill(name, source, content string, tags []string) (protocol.AgentSkill, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	skill, err := addSkillLocked(&s.state, name, source, content)
+	skill, err := addSkillLocked(&s.state, name, source, content, tags)
 	if err != nil {
 		return protocol.AgentSkill{}, err
 	}
@@ -350,7 +350,7 @@ func (s *Store) DeleteSkill(skillID string) (protocol.AgentSkill, error) {
 	return protocol.AgentSkill{}, errors.New("skill not found")
 }
 
-func (s *Store) AddAgentSkill(agentID, name, source, content string) (protocol.AgentSkill, error) {
+func (s *Store) AddAgentSkill(agentID, name, source, content string, tags []string) (protocol.AgentSkill, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	agentID = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(agentID), "@"))
@@ -358,7 +358,7 @@ func (s *Store) AddAgentSkill(agentID, name, source, content string) (protocol.A
 		if !agentMatches(s.state.Agents[i], agentID) {
 			continue
 		}
-		skill, err := addSkillLocked(&s.state, name, source, content)
+		skill, err := addSkillLocked(&s.state, name, source, content, tags)
 		if err != nil {
 			return protocol.AgentSkill{}, err
 		}
@@ -675,7 +675,7 @@ func agentHasLegacySkill(agent protocol.Agent, skillID string) bool {
 func addSkillsLocked(state *protocol.State, skills []protocol.AgentSkill) ([]string, error) {
 	var ids []string
 	for _, skill := range skills {
-		normalized, err := addSkillLocked(state, skill.Name, skill.Source, skill.Content)
+		normalized, err := addSkillLocked(state, skill.Name, skill.Source, skill.Content, skill.Tags)
 		if err != nil {
 			return nil, err
 		}
@@ -684,8 +684,8 @@ func addSkillsLocked(state *protocol.State, skills []protocol.AgentSkill) ([]str
 	return ids, nil
 }
 
-func addSkillLocked(state *protocol.State, name, source, content string) (protocol.AgentSkill, error) {
-	skill, err := newAgentSkill(name, source, content, state.Skills)
+func addSkillLocked(state *protocol.State, name, source, content string, tags []string) (protocol.AgentSkill, error) {
+	skill, err := newAgentSkill(name, source, content, tags, state.Skills)
 	if err != nil {
 		return protocol.AgentSkill{}, err
 	}
@@ -693,7 +693,7 @@ func addSkillLocked(state *protocol.State, name, source, content string) (protoc
 	return skill, nil
 }
 
-func newAgentSkill(name, source, content string, existing []protocol.AgentSkill) (protocol.AgentSkill, error) {
+func newAgentSkill(name, source, content string, tags []string, existing []protocol.AgentSkill) (protocol.AgentSkill, error) {
 	name = strings.TrimSpace(name)
 	source = strings.TrimSpace(source)
 	content = strings.TrimSpace(content)
@@ -711,6 +711,7 @@ func newAgentSkill(name, source, content string, existing []protocol.AgentSkill)
 		Name:      name,
 		Source:    source,
 		Content:   content,
+		Tags:      normalizeSkillTags(tags),
 		CreatedAt: protocol.Now(),
 	}
 	for _, candidate := range existing {
@@ -720,6 +721,29 @@ func newAgentSkill(name, source, content string, existing []protocol.AgentSkill)
 		}
 	}
 	return skill, nil
+}
+
+func normalizeSkillTags(tags []string) []string {
+	var out []string
+	for _, tag := range tags {
+		normalized := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(tag, "#")))
+		normalized = strings.Join(strings.Fields(normalized), "-")
+		normalized = strings.Trim(normalized, "-")
+		if normalized == "" {
+			continue
+		}
+		normalized = strings.Trim(truncateRunes(normalized, 32), "-")
+		out = appendUnique(out, normalized)
+	}
+	return out
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
 }
 
 func slug(value string) string {
@@ -787,6 +811,7 @@ func (s *Store) ensureSkillLibraryLocked() {
 		if strings.TrimSpace(s.state.Skills[i].ID) == "" {
 			s.state.Skills[i].ID = protocol.NewID("skill")
 		}
+		s.state.Skills[i].Tags = normalizeSkillTags(s.state.Skills[i].Tags)
 		if strings.TrimSpace(s.state.Skills[i].CreatedAt) == "" {
 			s.state.Skills[i].CreatedAt = protocol.Now()
 		}
@@ -805,7 +830,7 @@ func (s *Store) ensureSkillLibraryLocked() {
 					continue
 				}
 			}
-			normalized, err := newAgentSkill(skill.Name, skill.Source, skill.Content, s.state.Skills)
+			normalized, err := newAgentSkill(skill.Name, skill.Source, skill.Content, skill.Tags, s.state.Skills)
 			if err != nil {
 				continue
 			}
