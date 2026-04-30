@@ -63,7 +63,9 @@ const els = {
   agentList: document.querySelector("#agent-list"),
   openTasks: document.querySelector("#open-tasks"),
   openSkills: document.querySelector("#open-skills"),
-  themeToggle: document.querySelector("#theme-toggle"),
+  settingsButton: document.querySelector("#settings-button"),
+  settingsDialog: document.querySelector("#settings-dialog"),
+  themeChoices: document.querySelectorAll("[data-theme-choice]"),
   roomEyebrow: document.querySelector("#room-eyebrow"),
   roomName: document.querySelector("#room-name"),
   defaultAgentControl: document.querySelector(".default-agent-control"),
@@ -782,20 +784,15 @@ function applyTheme(theme) {
   } catch {
     // Theme persistence is optional.
   }
-  updateThemeToggle();
+  updateThemeControls();
 }
 
-function updateThemeToggle() {
-  if (!els.themeToggle) return;
-  const isDark = state.theme === "dark";
-  els.themeToggle.classList.toggle("active", isDark);
-  els.themeToggle.setAttribute("aria-pressed", String(isDark));
-  const strong = els.themeToggle.querySelector("strong");
-  const small = els.themeToggle.querySelector("small");
-  const icon = els.themeToggle.querySelector(".tool-icon");
-  if (strong) strong.textContent = isDark ? "Light Theme" : "Black Theme";
-  if (small) small.textContent = isDark ? "Return to clean mode" : "Cyberpunk mode";
-  if (icon) icon.textContent = isDark ? "Lt" : "Bk";
+function updateThemeControls() {
+  for (const choice of els.themeChoices) {
+    const active = choice.dataset.themeChoice === state.theme;
+    choice.classList.toggle("active", active);
+    choice.setAttribute("aria-pressed", String(active));
+  }
 }
 
 function initialChannelReadState() {
@@ -1031,8 +1028,16 @@ els.openSkills.addEventListener("click", () => {
   state.view = "skills";
   render();
 });
-els.themeToggle.addEventListener("click", () => {
-  applyTheme(state.theme === "dark" ? "light" : "dark");
+els.settingsButton.addEventListener("click", () => {
+  els.settingsDialog.showModal();
+});
+for (const choice of els.themeChoices) {
+  choice.addEventListener("click", () => {
+    applyTheme(choice.dataset.themeChoice);
+  });
+}
+els.settingsDialog.addEventListener("close", () => {
+  els.settingsButton.focus();
 });
 els.taskManagerAdd.addEventListener("click", () => openTaskDialog());
 els.taskLaneAdd.addEventListener("click", () => {

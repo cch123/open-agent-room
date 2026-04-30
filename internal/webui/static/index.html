@@ -27,6 +27,7 @@
             <strong>Open Agent Room</strong>
             <small>Human + agent workspace</small>
           </div>
+          <button id="settings-button" class="settings-button" type="button" aria-label="Open settings" title="Settings">⚙</button>
         </div>
 
         <nav class="workspace-tools" aria-label="Workspace tools">
@@ -42,13 +43,6 @@
             <span>
               <strong>Skill Center</strong>
               <small>Manage imported skills</small>
-            </span>
-          </button>
-          <button id="theme-toggle" class="workspace-tool" type="button" aria-pressed="false">
-            <span class="tool-icon">Bk</span>
-            <span>
-              <strong>Black Theme</strong>
-              <small>Cyberpunk mode</small>
             </span>
           </button>
         </nav>
@@ -213,6 +207,31 @@
         <menu>
           <button value="cancel">Cancel</button>
           <button id="agent-create" value="default">Create</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="settings-dialog">
+      <form method="dialog" class="dialog-body settings-dialog-body">
+        <h2>Settings</h2>
+        <section class="settings-section" aria-label="Appearance">
+          <div>
+            <strong>Appearance</strong>
+            <small>Choose the workspace visual mode.</small>
+          </div>
+          <div class="theme-choice-row" role="group" aria-label="Theme">
+            <button type="button" data-theme-choice="light" aria-pressed="false">
+              <span>Lt</span>
+              <strong>Clean</strong>
+            </button>
+            <button type="button" data-theme-choice="dark" aria-pressed="false">
+              <span>Bk</span>
+              <strong>Cyberpunk</strong>
+            </button>
+          </div>
+        </section>
+        <menu>
+          <button value="cancel">Close</button>
         </menu>
       </form>
     </dialog>

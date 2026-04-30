@@ -141,7 +141,7 @@ button:focus-visible {
 
 .workspace-mark {
   display: grid;
-  grid-template-columns: 34px 1fr;
+  grid-template-columns: 34px minmax(0, 1fr) 32px;
   gap: 12px;
   align-items: center;
   padding: 18px 16px 16px;
@@ -153,11 +153,37 @@ button:focus-visible {
   display: block;
 }
 
+.workspace-mark > div:nth-child(2) {
+  min-width: 0;
+}
+
 .workspace-mark small {
   color: var(--muted);
   margin-top: 3px;
   font-size: 12px;
   line-height: 1.25;
+}
+
+.settings-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.settings-button:hover,
+.settings-button:focus-visible {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--line-strong);
 }
 
 .mark-grid {
@@ -1515,6 +1541,67 @@ dialog::backdrop {
   gap: 13px;
 }
 
+.settings-dialog-body {
+  gap: 18px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.settings-section strong,
+.settings-section small {
+  display: block;
+}
+
+.settings-section small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.theme-choice-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-choice-row button {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.theme-choice-row button span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.theme-choice-row button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .dialog-error {
   margin: 0;
   padding: 10px 12px;
@@ -1868,6 +1955,7 @@ menu button:first-child:hover {
 }
 
 :root[data-theme="dark"] .workspace-tool,
+:root[data-theme="dark"] .settings-button,
 :root[data-theme="dark"] .nav-item,
 :root[data-theme="dark"] .human-item,
 :root[data-theme="dark"] .agent-item,
@@ -1916,6 +2004,8 @@ menu button:first-child:hover {
 }
 
 :root[data-theme="dark"] .workspace-tool:hover,
+:root[data-theme="dark"] .settings-button:hover,
+:root[data-theme="dark"] .settings-button:focus-visible,
 :root[data-theme="dark"] .workspace-tool.active,
 :root[data-theme="dark"] .nav-item.active,
 :root[data-theme="dark"] .human-item:hover,
@@ -2152,6 +2242,30 @@ menu button:first-child:hover {
   box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.2);
 }
 
+:root[data-theme="dark"] .settings-section {
+  background: rgba(15, 23, 38, 0.72);
+  border-color: rgba(34, 211, 238, 0.18);
+}
+
+:root[data-theme="dark"] .theme-choice-row button {
+  background: rgba(8, 13, 22, 0.76);
+  border-color: var(--line);
+  color: var(--text);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .theme-choice-row button:hover,
+:root[data-theme="dark"] .theme-choice-row button:focus-visible {
+  border-color: rgba(34, 211, 238, 0.28);
+  background: rgba(15, 23, 38, 0.96);
+}
+
+:root[data-theme="dark"] .theme-choice-row button.active {
+  border-color: var(--accent);
+  background: rgba(34, 211, 238, 0.12);
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 18px rgba(34, 211, 238, 0.1);
+}
+
 :root[data-theme="dark"] .dialog-error {
   border-color: rgba(251, 59, 143, 0.48);
   background: rgba(251, 59, 143, 0.1);
@@ -2297,8 +2411,13 @@ menu button:first-child:hover {
   }
 
   .workspace-mark {
-    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-columns: 34px minmax(0, 1fr) 30px;
     gap: 10px;
+  }
+
+  .settings-button {
+    width: 30px;
+    height: 30px;
   }
 
   .workspace-tools {
