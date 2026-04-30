@@ -70,6 +70,11 @@ button:hover {
   background: var(--accent-strong);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
 button:active {
   transform: translateY(1px);
 }
@@ -157,6 +162,69 @@ button:focus-visible {
 
 .mark-grid span:nth-child(4) {
   background: #a83f55;
+}
+
+.workspace-tools {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(212, 219, 227, 0.6);
+}
+
+.workspace-tool {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.workspace-tool:hover,
+.workspace-tool.active {
+  background: var(--surface);
+  border-color: rgba(194, 202, 212, 0.78);
+  box-shadow: var(--shadow-soft);
+}
+
+.workspace-tool.active {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.workspace-tool > span:last-child {
+  min-width: 0;
+}
+
+.workspace-tool strong,
+.workspace-tool small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-tool small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.tool-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 820;
+  border: 1px solid rgba(49, 95, 122, 0.16);
 }
 
 .section-header {
@@ -475,6 +543,144 @@ h2 {
   background:
     linear-gradient(#ffffff, #ffffff) padding-box,
     linear-gradient(180deg, rgba(232, 236, 241, 0.3), rgba(232, 236, 241, 0)) border-box;
+}
+
+.skill-manager {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 22px 28px;
+  background: #fff;
+}
+
+.skill-manager-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-manager-toolbar > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.skill-manager-toolbar strong {
+  font-size: 16px;
+}
+
+.skill-manager-toolbar span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.skill-manager-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(220px, 1fr);
+  gap: 12px;
+  padding: 14px 0;
+}
+
+.skill-manager-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.skill-manager-list {
+  display: grid;
+  gap: 8px;
+}
+
+.skill-manager-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.skill-manager-agent {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+}
+
+.skill-manager-agent span:last-child,
+.skill-manager-copy {
+  min-width: 0;
+}
+
+.skill-manager-agent strong,
+.skill-manager-agent small,
+.skill-manager-copy strong,
+.skill-manager-copy span,
+.skill-manager-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-manager-agent small,
+.skill-manager-copy span,
+.skill-manager-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.skill-manager-copy {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.skill-manager-copy:hover,
+.skill-manager-copy:focus-visible {
+  background: transparent;
+  color: var(--accent-strong);
+}
+
+.skill-manager-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skill-manager-actions .item-action {
+  width: 58px;
+  margin-top: 0;
+}
+
+.skill-manager-actions .item-delete {
+  margin-top: 0;
+}
+
+.skill-manager-empty {
+  display: grid;
+  gap: 4px;
+  padding: 22px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.skill-manager-empty span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .message {
@@ -1099,6 +1305,19 @@ menu button:first-child:hover {
     padding: 14px 16px 22px;
   }
 
+  .skill-manager {
+    padding: 14px 16px 22px;
+  }
+
+  .skill-manager-filters,
+  .skill-manager-row {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-manager-actions {
+    justify-content: flex-end;
+  }
+
   .composer {
     padding: 10px 12px max(12px, env(safe-area-inset-bottom));
   }
@@ -1134,6 +1353,20 @@ menu button:first-child:hover {
   .workspace-mark {
     grid-template-columns: 34px minmax(0, 1fr);
     gap: 10px;
+  }
+
+  .workspace-tools {
+    padding: 8px;
+  }
+
+  .workspace-tool {
+    grid-template-columns: 26px minmax(0, 1fr);
+    padding: 8px;
+  }
+
+  .tool-icon {
+    width: 26px;
+    height: 26px;
   }
 
   .workspace-mark strong,
@@ -1275,6 +1508,15 @@ menu button:first-child:hover {
 
   .messages {
     padding: 12px 12px 18px;
+  }
+
+  .skill-manager {
+    padding: 12px 12px 18px;
+  }
+
+  .skill-manager-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .composer {

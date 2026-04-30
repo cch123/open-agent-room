@@ -19,6 +19,16 @@
           </div>
         </div>
 
+        <nav class="workspace-tools" aria-label="Workspace tools">
+          <button id="open-skills" class="workspace-tool" type="button">
+            <span class="tool-icon">Sk</span>
+            <span>
+              <strong>Skill Center</strong>
+              <small>Manage imported skills</small>
+            </span>
+          </button>
+        </nav>
+
         <div class="section-header">
           <span>Channels</span>
           <button id="new-channel" class="icon-button" title="Create channel">+</button>
@@ -41,7 +51,7 @@
       <main class="conversation">
         <header class="room-header">
           <div>
-            <div class="eyebrow">Channel</div>
+            <div id="room-eyebrow" class="eyebrow">Channel</div>
             <h1 id="room-name">#general</h1>
           </div>
           <div class="room-actions">
@@ -54,6 +64,27 @@
         </header>
 
         <section id="messages" class="messages" aria-live="polite"></section>
+
+        <section id="skill-manager" class="skill-manager" hidden>
+          <div class="skill-manager-toolbar">
+            <div>
+              <strong id="skill-manager-count">0 skills</strong>
+              <span>Imported instructions across agents</span>
+            </div>
+            <button id="skill-manager-add" type="button">Import Skill</button>
+          </div>
+          <div class="skill-manager-filters">
+            <label>
+              Agent
+              <select id="skill-agent-filter"></select>
+            </label>
+            <label>
+              Search
+              <input id="skill-search" autocomplete="off" placeholder="Search skill name, source, content" />
+            </label>
+          </div>
+          <div id="skill-manager-list" class="skill-manager-list"></div>
+        </section>
 
         <form id="composer" class="composer">
           <div id="mention-row" class="mention-row"></div>
@@ -160,6 +191,10 @@
         <h2>Import Skill</h2>
         <p id="skill-agent-name" class="muted"></p>
         <div id="skill-list" class="skill-list"></div>
+        <label>
+          Target agent
+          <select id="skill-target-agent"></select>
+        </label>
         <label>
           Skill name
           <input id="skill-name" autocomplete="off" placeholder="Review discipline" />

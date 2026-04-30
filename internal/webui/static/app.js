@@ -1,5 +1,6 @@
 const state = {
   snapshot: null,
+  view: "channel",
   channelId: "chan_general",
   selectedEventId: null,
   mention: {
@@ -9,6 +10,8 @@ const state = {
     selected: 0,
   },
   skillAgentId: "",
+  skillFilterAgentId: "",
+  skillSearch: "",
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
@@ -44,10 +47,19 @@ const els = {
   channelList: document.querySelector("#channel-list"),
   userList: document.querySelector("#user-list"),
   agentList: document.querySelector("#agent-list"),
+  openSkills: document.querySelector("#open-skills"),
+  roomEyebrow: document.querySelector("#room-eyebrow"),
   roomName: document.querySelector("#room-name"),
+  defaultAgentControl: document.querySelector(".default-agent-control"),
   daemonChip: document.querySelector("#daemon-chip"),
   daemonCount: document.querySelector("#daemon-count"),
   messages: document.querySelector("#messages"),
+  skillManager: document.querySelector("#skill-manager"),
+  skillManagerCount: document.querySelector("#skill-manager-count"),
+  skillManagerAdd: document.querySelector("#skill-manager-add"),
+  skillAgentFilter: document.querySelector("#skill-agent-filter"),
+  skillSearch: document.querySelector("#skill-search"),
+  skillManagerList: document.querySelector("#skill-manager-list"),
   composer: document.querySelector("#composer"),
   input: document.querySelector("#message-input"),
   mentionRow: document.querySelector("#mention-row"),
@@ -73,6 +85,7 @@ const els = {
   skillDialog: document.querySelector("#skill-dialog"),
   skillAgentName: document.querySelector("#skill-agent-name"),
   skillList: document.querySelector("#skill-list"),
+  skillTargetAgent: document.querySelector("#skill-target-agent"),
   skillName: document.querySelector("#skill-name"),
   skillSource: document.querySelector("#skill-source"),
   skillFile: document.querySelector("#skill-file"),
@@ -114,13 +127,24 @@ function render() {
     state.channelId = channels[0]?.id || "";
   }
   const current = channels.find((channel) => channel.id === state.channelId);
-  els.roomName.textContent = current ? `#${current.name}` : "#channel";
+  const isSkillView = state.view === "skills";
+  els.roomEyebrow.textContent = isSkillView ? "Management" : "Channel";
+  els.roomName.textContent = isSkillView ? "Skill Center" : current ? `#${current.name}` : "#channel";
+  els.defaultAgentControl.hidden = isSkillView;
+  els.messages.hidden = isSkillView;
+  els.composer.hidden = isSkillView;
+  els.skillManager.hidden = !isSkillView;
+  els.openSkills.classList.toggle("active", isSkillView);
 
   renderChannels(channels);
   renderUsers(users || []);
   renderAgents(agents);
-  renderMessages();
-  renderMentions(availableMentionAgents(current, agents));
+  if (isSkillView) {
+    renderSkillManager(agents);
+  } else {
+    renderMessages();
+    renderMentions(availableMentionAgents(current, agents));
+  }
   renderDaemon(daemons);
   renderChannelSettings(current, agents);
   renderAssign(agents);
@@ -134,11 +158,12 @@ function renderChannels(channels) {
     const row = document.createElement("div");
     row.className = "nav-row";
     const button = document.createElement("button");
-    button.className = `nav-item ${channel.id === state.channelId ? "active" : ""}`;
+    button.className = `nav-item ${state.view === "channel" && channel.id === state.channelId ? "active" : ""}`;
     button.title = channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`;
     button.dataset.tooltip = channel.topic ? `#${channel.name}\n${channel.topic}` : `#${channel.name}`;
     button.innerHTML = `<span class="hash">#</span><span><strong>${escapeHTML(channel.name)}</strong><span class="nav-topic">${escapeHTML(channel.topic || "")}</span></span>`;
     button.addEventListener("click", () => {
+      state.view = "channel";
       state.channelId = channel.id;
       render();
     });
@@ -786,6 +811,23 @@ els.defaultAgent.addEventListener("change", async () => {
 document.querySelector("#new-agent").addEventListener("click", () => els.agentDialog.showModal());
 document.querySelector("#new-user").addEventListener("click", () => els.userDialog.showModal());
 document.querySelector("#new-channel").addEventListener("click", () => els.channelDialog.showModal());
+els.openSkills.addEventListener("click", () => {
+  state.view = "skills";
+  render();
+});
+els.skillManagerAdd.addEventListener("click", () => {
+  const agents = state.snapshot?.agents || [];
+  const target = state.skillFilterAgentId || agents[0]?.id || "";
+  openSkillDialog(agents.find((agent) => agent.id === target) || agents[0]);
+});
+els.skillAgentFilter.addEventListener("change", () => {
+  state.skillFilterAgentId = els.skillAgentFilter.value;
+  renderSkillManager(state.snapshot?.agents || []);
+});
+els.skillSearch.addEventListener("input", () => {
+  state.skillSearch = els.skillSearch.value.trim();
+  renderSkillManager(state.snapshot?.agents || []);
+});
 
 els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
 els.agentModel.addEventListener("change", updateCustomModelVisibility);
@@ -827,6 +869,10 @@ els.skillFile.addEventListener("change", async () => {
   els.skillSource.value = els.skillSource.value.trim() || file.name;
   els.skillName.value = els.skillName.value.trim() || file.name.replace(/\.[^.]+$/, "");
   els.skillContent.value = await file.text();
+});
+els.skillTargetAgent.addEventListener("change", () => {
+  state.skillAgentId = els.skillTargetAgent.value;
+  renderSkillDialog();
 });
 
 document.querySelector("#skill-import").addEventListener("click", async (event) => {
@@ -884,6 +930,10 @@ async function deleteAgent(agent) {
 }
 
 function openSkillDialog(agent) {
+  if (!agent) {
+    alert("Create an agent before importing skills.");
+    return;
+  }
   state.skillAgentId = agent.id;
   els.skillName.value = "";
   els.skillSource.value = "";
@@ -893,7 +943,114 @@ function openSkillDialog(agent) {
   els.skillDialog.showModal();
 }
 
+function renderSkillManager(agents) {
+  const rows = allAgentSkills(agents);
+  const filterOptions = [{ id: "", name: "All agents" }, ...agents];
+  const previousFilter = state.skillFilterAgentId;
+  els.skillAgentFilter.innerHTML = "";
+  for (const agent of filterOptions) {
+    const option = document.createElement("option");
+    option.value = agent.id;
+    option.textContent = agent.id ? `${agent.name} · ${runtimeLabel(agent)}` : agent.name;
+    els.skillAgentFilter.append(option);
+  }
+  if (previousFilter && agents.some((agent) => agent.id === previousFilter)) {
+    els.skillAgentFilter.value = previousFilter;
+  } else {
+    state.skillFilterAgentId = "";
+    els.skillAgentFilter.value = "";
+  }
+  if (els.skillSearch.value !== state.skillSearch) {
+    els.skillSearch.value = state.skillSearch;
+  }
+
+  const query = state.skillSearch.toLowerCase();
+  const visible = rows.filter(({ agent, skill }) => {
+    if (state.skillFilterAgentId && agent.id !== state.skillFilterAgentId) return false;
+    if (!query) return true;
+    return [skill.name, skill.source, skill.content, agent.name, runtimeLabel(agent)]
+      .join("\n")
+      .toLowerCase()
+      .includes(query);
+  });
+
+  els.skillManagerCount.textContent = `${rows.length} skill${rows.length === 1 ? "" : "s"}`;
+  els.skillManagerList.innerHTML = "";
+  els.skillManagerAdd.disabled = agents.length === 0;
+  if (rows.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "skill-manager-empty";
+    empty.innerHTML = "<strong>No imported skills yet.</strong><span>Import a skill and bind it to an agent runtime context.</span>";
+    els.skillManagerList.append(empty);
+    return;
+  }
+  if (visible.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "skill-manager-empty";
+    empty.innerHTML = "<strong>No matching skills.</strong><span>Adjust the agent filter or search query.</span>";
+    els.skillManagerList.append(empty);
+    return;
+  }
+
+  for (const { agent, skill } of visible) {
+    const row = document.createElement("article");
+    row.className = "skill-manager-row";
+    row.innerHTML = `
+      <div class="skill-manager-agent">
+        <span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span>
+        <span>
+          <strong>${escapeHTML(agent.name)}</strong>
+          <small>${escapeHTML(runtimeLabel(agent))}</small>
+        </span>
+      </div>
+      <button class="skill-manager-copy" type="button">
+        <strong>${escapeHTML(skill.name)}</strong>
+        <span>${escapeHTML(skill.source || "manual import")} · ${skill.content ? `${skill.content.length} chars` : "empty"}</span>
+        <small>${escapeHTML(skillExcerpt(skill.content))}</small>
+      </button>
+      <div class="skill-manager-actions">
+        <button class="item-action visible" type="button" data-action="open">Open</button>
+        <button class="item-delete visible" type="button" data-action="delete" aria-label="Delete skill ${escapeHTML(skill.name)}">x</button>
+      </div>`;
+    row.querySelector("[data-action='open']").addEventListener("click", () => openSkillContent(agent, skill));
+    row.querySelector(".skill-manager-copy").addEventListener("click", () => openSkillContent(agent, skill));
+    row.querySelector("[data-action='delete']").addEventListener("click", () => deleteAgentSkill(agent, skill));
+    els.skillManagerList.append(row);
+  }
+}
+
+function allAgentSkills(agents) {
+  return agents.flatMap((agent) => (agent.skills || []).map((skill) => ({ agent, skill })));
+}
+
+function skillExcerpt(content = "") {
+  const compacted = cleanMarkdownInline(content.replace(/\s+/g, " "));
+  return compacted.slice(0, 180) || "No content preview.";
+}
+
+function openSkillContent(agent, skill) {
+  els.markdownDialogTitle.textContent = skill.name || "Imported skill";
+  els.markdownDialogMeta.textContent = `${agent.name} · ${skill.source || "manual import"} · ${runtimeLabel(agent)}`;
+  els.markdownDialogBody.innerHTML = renderMarkdown(skill.content || "");
+  els.markdownDialog.showModal();
+}
+
 function renderSkillDialog() {
+  const agents = state.snapshot?.agents || [];
+  const previous = state.skillAgentId;
+  els.skillTargetAgent.innerHTML = "";
+  for (const candidate of agents) {
+    const option = document.createElement("option");
+    option.value = candidate.id;
+    option.textContent = `${candidate.name} · ${runtimeLabel(candidate)}`;
+    els.skillTargetAgent.append(option);
+  }
+  if (previous && agents.some((candidate) => candidate.id === previous)) {
+    els.skillTargetAgent.value = previous;
+  } else {
+    state.skillAgentId = agents[0]?.id || "";
+    els.skillTargetAgent.value = state.skillAgentId;
+  }
   const agent = currentSkillAgent();
   els.skillAgentName.textContent = agent ? `${agent.name} · ${runtimeLabel(agent)}` : "";
   els.skillList.innerHTML = "";
