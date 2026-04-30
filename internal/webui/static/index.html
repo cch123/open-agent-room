@@ -20,6 +20,13 @@
         </div>
 
         <nav class="workspace-tools" aria-label="Workspace tools">
+          <button id="open-tasks" class="workspace-tool" type="button">
+            <span class="tool-icon">Tk</span>
+            <span>
+              <strong>Tasks</strong>
+              <small>Board and task channels</small>
+            </span>
+          </button>
           <button id="open-skills" class="workspace-tool" type="button">
             <span class="tool-icon">Sk</span>
             <span>
@@ -84,6 +91,20 @@
             </label>
           </div>
           <div id="skill-manager-list" class="skill-manager-list"></div>
+        </section>
+
+        <section id="task-manager" class="task-manager" hidden>
+          <div class="task-manager-toolbar">
+            <div>
+              <strong id="task-manager-count">0 tasks</strong>
+              <span>Workspace work queue and discussion channels</span>
+            </div>
+            <div class="task-toolbar-actions">
+              <button id="task-lane-add" type="button">Add Lane</button>
+              <button id="task-manager-add" type="button">Create Task</button>
+            </div>
+          </div>
+          <div id="task-board" class="task-board" aria-label="Task status board"></div>
         </section>
 
         <form id="composer" class="composer">
@@ -175,6 +196,42 @@
         <menu>
           <button value="cancel">Cancel</button>
           <button id="agent-create" value="default">Create</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="task-dialog">
+      <form method="dialog" class="dialog-body">
+        <h2>Create Task</h2>
+        <label>
+          Title
+          <input id="task-title" autocomplete="off" placeholder="Review channel routing edge cases" />
+        </label>
+        <label>
+          Description
+          <textarea id="task-description" rows="4" placeholder="Scope, expected outcome, and any context."></textarea>
+        </label>
+        <label>
+          Lane
+          <select id="task-lane"></select>
+        </label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="task-create" value="default">Create</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="task-lane-dialog">
+      <form method="dialog" class="dialog-body">
+        <h2>Add Lane</h2>
+        <label>
+          Name
+          <input id="task-lane-name" autocomplete="off" placeholder="Blocked" />
+        </label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="task-lane-create" value="default">Add</button>
         </menu>
       </form>
     </dialog>

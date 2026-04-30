@@ -14,6 +14,7 @@ const state = {
   skillCreateMode: "local",
   skillSearch: "",
   skillTagFilter: "",
+  taskDragId: "",
 };
 
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
@@ -55,6 +56,7 @@ const els = {
   channelList: document.querySelector("#channel-list"),
   userList: document.querySelector("#user-list"),
   agentList: document.querySelector("#agent-list"),
+  openTasks: document.querySelector("#open-tasks"),
   openSkills: document.querySelector("#open-skills"),
   roomEyebrow: document.querySelector("#room-eyebrow"),
   roomName: document.querySelector("#room-name"),
@@ -68,6 +70,11 @@ const els = {
   skillSearch: document.querySelector("#skill-search"),
   skillTagFilter: document.querySelector("#skill-tag-filter"),
   skillManagerList: document.querySelector("#skill-manager-list"),
+  taskManager: document.querySelector("#task-manager"),
+  taskManagerCount: document.querySelector("#task-manager-count"),
+  taskManagerAdd: document.querySelector("#task-manager-add"),
+  taskLaneAdd: document.querySelector("#task-lane-add"),
+  taskBoard: document.querySelector("#task-board"),
   composer: document.querySelector("#composer"),
   input: document.querySelector("#message-input"),
   mentionRow: document.querySelector("#mention-row"),
@@ -89,6 +96,12 @@ const els = {
   agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
   agentSkills: document.querySelector("#agent-skills"),
   agentSkillLibrary: document.querySelector("#agent-skill-library"),
+  taskDialog: document.querySelector("#task-dialog"),
+  taskTitle: document.querySelector("#task-title"),
+  taskDescription: document.querySelector("#task-description"),
+  taskLane: document.querySelector("#task-lane"),
+  taskLaneDialog: document.querySelector("#task-lane-dialog"),
+  taskLaneName: document.querySelector("#task-lane-name"),
   userDialog: document.querySelector("#user-dialog"),
   userName: document.querySelector("#user-name"),
   skillDialog: document.querySelector("#skill-dialog"),
@@ -140,25 +153,35 @@ async function load() {
 
 function render() {
   if (!state.snapshot) return;
-  const { channels, users, agents, daemons, events } = state.snapshot;
+  const channels = state.snapshot.channels || [];
+  const users = state.snapshot.users || [];
+  const agents = state.snapshot.agents || [];
+  const daemons = state.snapshot.daemons || [];
+  const events = state.snapshot.events || [];
   if (!channels.some((channel) => channel.id === state.channelId)) {
     state.channelId = channels[0]?.id || "";
   }
   const current = channels.find((channel) => channel.id === state.channelId);
   const isSkillView = state.view === "skills";
-  els.roomEyebrow.textContent = isSkillView ? "Management" : "Channel";
-  els.roomName.textContent = isSkillView ? "Skill Center" : current ? `#${current.name}` : "#channel";
-  els.defaultAgentControl.hidden = isSkillView;
-  els.messages.hidden = isSkillView;
-  els.composer.hidden = isSkillView;
+  const isTaskView = state.view === "tasks";
+  const isManagementView = isSkillView || isTaskView;
+  els.roomEyebrow.textContent = isManagementView ? "Management" : "Channel";
+  els.roomName.textContent = isTaskView ? "Tasks" : isSkillView ? "Skill Center" : current ? `#${current.name}` : "#channel";
+  els.defaultAgentControl.hidden = isManagementView;
+  els.messages.hidden = isManagementView;
+  els.composer.hidden = isManagementView;
   els.skillManager.hidden = !isSkillView;
+  els.taskManager.hidden = !isTaskView;
+  els.openTasks.classList.toggle("active", isTaskView);
   els.openSkills.classList.toggle("active", isSkillView);
 
   renderChannels(channels);
-  renderUsers(users || []);
+  renderUsers(users);
   renderAgents(agents);
   if (isSkillView) {
     renderSkillManager(state.snapshot.skills || [], agents);
+  } else if (isTaskView) {
+    renderTaskManager(state.snapshot.taskLanes || [], state.snapshot.tasks || [], channels);
   } else {
     renderMessages();
     renderMentions(availableMentionAgents(current, agents));
@@ -166,7 +189,7 @@ function render() {
   renderDaemon(daemons);
   renderChannelSettings(current, agents);
   renderAssign(agents);
-  renderEvents(events || []);
+  renderEvents(events);
   if (state.skillAgentId && els.skillDialog.open) renderSkillDialog();
 }
 
@@ -266,7 +289,9 @@ function renderAgents(agents) {
 }
 
 function renderMessages() {
-  const { messages, agents, users } = state.snapshot;
+  const messages = state.snapshot.messages || [];
+  const agents = state.snapshot.agents || [];
+  const users = state.snapshot.users || [];
   const byAgent = new Map(agents.map((agent) => [agent.id, agent]));
   const byUser = new Map((users || []).map((user) => [user.id, user]));
   const visible = messages.filter((message) => message.channelId === state.channelId);
@@ -869,9 +894,18 @@ els.defaultAgent.addEventListener("change", async () => {
 document.querySelector("#new-agent").addEventListener("click", openAgentDialog);
 document.querySelector("#new-user").addEventListener("click", () => els.userDialog.showModal());
 document.querySelector("#new-channel").addEventListener("click", () => els.channelDialog.showModal());
+els.openTasks.addEventListener("click", () => {
+  state.view = "tasks";
+  render();
+});
 els.openSkills.addEventListener("click", () => {
   state.view = "skills";
   render();
+});
+els.taskManagerAdd.addEventListener("click", () => openTaskDialog());
+els.taskLaneAdd.addEventListener("click", () => {
+  els.taskLaneName.value = "";
+  els.taskLaneDialog.showModal();
 });
 els.skillManagerAdd.addEventListener("click", () => {
   openGlobalSkillDialog();
@@ -1034,6 +1068,55 @@ document.querySelector("#channel-create").addEventListener("click", async (event
   els.channelDialog.close();
 });
 
+document.querySelector("#task-create").addEventListener("click", async (event) => {
+  event.preventDefault();
+  const title = els.taskTitle.value.trim();
+  const description = els.taskDescription.value.trim();
+  const laneId = els.taskLane.value;
+  if (!title) return;
+  try {
+    await api("/api/tasks", { method: "POST", body: JSON.stringify({ title, description, laneId }) });
+    els.taskTitle.value = "";
+    els.taskDescription.value = "";
+    els.taskDialog.close();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+document.querySelector("#task-lane-create").addEventListener("click", async (event) => {
+  event.preventDefault();
+  const name = els.taskLaneName.value.trim();
+  if (!name) return;
+  try {
+    await api("/api/task-lanes", { method: "POST", body: JSON.stringify({ name }) });
+    els.taskLaneName.value = "";
+    els.taskLaneDialog.close();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+function openTaskDialog(preferredLaneID = "") {
+  renderTaskLanePicker(preferredLaneID);
+  els.taskTitle.value = "";
+  els.taskDescription.value = "";
+  els.taskDialog.showModal();
+  els.taskTitle.focus();
+}
+
+function renderTaskLanePicker(selectedID = "") {
+  const lanes = sortedTaskLanes(state.snapshot?.taskLanes || []);
+  els.taskLane.innerHTML = "";
+  for (const lane of lanes) {
+    const option = document.createElement("option");
+    option.value = lane.id;
+    option.textContent = lane.name;
+    els.taskLane.append(option);
+  }
+  if (selectedID) els.taskLane.value = selectedID;
+}
+
 async function deleteChannel(channel) {
   if (!window.confirm(`Delete #${channel.name}? This removes the channel and its messages.`)) return;
   try {
@@ -1042,6 +1125,50 @@ async function deleteChannel(channel) {
       const next = state.snapshot.channels.find((candidate) => candidate.id !== channel.id);
       state.channelId = next?.id || "";
     }
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function moveTaskToLane(taskId, laneId) {
+  if (!taskId || !laneId) return;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ laneId }),
+    });
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function openTaskChannel(task) {
+  try {
+    const result = await api(`/api/tasks/${encodeURIComponent(task.id)}/channel`, { method: "POST" });
+    if (result.channel?.id) {
+      state.view = "channel";
+      state.channelId = result.channel.id;
+      state.snapshot = await api("/api/state");
+      render();
+    }
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteTask(task) {
+  if (!window.confirm(`Delete task "${task.title}"? The discussion channel will stay available if one exists.`)) return;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteTaskLane(lane) {
+  if (!window.confirm(`Delete lane "${lane.name}"? Tasks in this lane move to another lane.`)) return;
+  try {
+    await api(`/api/task-lanes/${encodeURIComponent(lane.id)}`, { method: "DELETE" });
   } catch (error) {
     alert(error.message);
   }
@@ -1172,6 +1299,112 @@ function renderSkillManager(skills, agents) {
     row.querySelector("[data-action='delete']").addEventListener("click", () => deleteGlobalSkill(skill));
     els.skillManagerList.append(row);
   }
+}
+
+function renderTaskManager(lanes, tasks, channels) {
+  const orderedLanes = sortedTaskLanes(lanes);
+  els.taskManagerCount.textContent = `${tasks.length} task${tasks.length === 1 ? "" : "s"}`;
+  els.taskBoard.innerHTML = "";
+
+  if (orderedLanes.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "task-empty";
+    empty.innerHTML = "<strong>No lanes yet.</strong><span>Add a lane to start managing tasks.</span>";
+    els.taskBoard.append(empty);
+    return;
+  }
+
+  const channelById = new Map(channels.map((channel) => [channel.id, channel]));
+  for (const lane of orderedLanes) {
+    const laneTasks = tasks.filter((task) => task.laneId === lane.id);
+    const laneEl = document.createElement("section");
+    laneEl.className = "task-lane";
+    laneEl.dataset.laneId = lane.id;
+    laneEl.innerHTML = `
+      <header class="task-lane-header">
+        <div>
+          <strong>${escapeHTML(lane.name)}</strong>
+          <span>${laneTasks.length} task${laneTasks.length === 1 ? "" : "s"}</span>
+        </div>
+        <div class="task-lane-actions">
+          <button class="task-lane-new" type="button" data-action="new-task">+</button>
+          <button class="item-delete visible" type="button" data-action="delete-lane" aria-label="Delete lane ${escapeHTML(lane.name)}" ${orderedLanes.length <= 1 ? "disabled" : ""}>x</button>
+        </div>
+      </header>
+      <div class="task-lane-body" data-lane-drop="${escapeHTML(lane.id)}"></div>`;
+
+    const body = laneEl.querySelector(".task-lane-body");
+    body.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      laneEl.classList.add("drop-target");
+    });
+    body.addEventListener("dragleave", () => laneEl.classList.remove("drop-target"));
+    body.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      laneEl.classList.remove("drop-target");
+      if (state.taskDragId) await moveTaskToLane(state.taskDragId, lane.id);
+    });
+
+    laneEl.querySelector("[data-action='new-task']").addEventListener("click", () => openTaskDialog(lane.id));
+    laneEl.querySelector("[data-action='delete-lane']").addEventListener("click", () => deleteTaskLane(lane));
+
+    if (laneTasks.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "task-lane-empty";
+      empty.textContent = "Drop tasks here";
+      body.append(empty);
+    }
+
+    for (const task of laneTasks) {
+      const card = document.createElement("article");
+      card.className = "task-card";
+      card.draggable = true;
+      card.dataset.taskId = task.id;
+      const channel = task.channelId ? channelById.get(task.channelId) : null;
+      card.innerHTML = `
+        <div class="task-card-main">
+          <strong>${escapeHTML(task.title)}</strong>
+          ${task.description ? `<p>${escapeHTML(task.description)}</p>` : ""}
+        </div>
+        <div class="task-card-meta">
+          <span>${escapeHTML(formatTaskTime(task.updatedAt || task.createdAt))}</span>
+          ${channel ? `<span>#${escapeHTML(channel.name)}</span>` : "<span>No channel</span>"}
+        </div>
+        <div class="task-card-controls">
+          <select class="task-status-select" aria-label="Move task ${escapeHTML(task.title)}">${taskLaneOptionsHTML(orderedLanes, task.laneId)}</select>
+          <button type="button" class="item-action visible" data-action="discuss">${channel ? "Open" : "Discuss"}</button>
+          <button type="button" class="item-delete visible" data-action="delete-task" aria-label="Delete task ${escapeHTML(task.title)}">x</button>
+        </div>`;
+      card.addEventListener("dragstart", (event) => {
+        state.taskDragId = task.id;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", task.id);
+        card.classList.add("dragging");
+      });
+      card.addEventListener("dragend", () => {
+        state.taskDragId = "";
+        card.classList.remove("dragging");
+      });
+      card.querySelector(".task-status-select").addEventListener("change", (event) => {
+        void moveTaskToLane(task.id, event.target.value);
+      });
+      card.querySelector("[data-action='discuss']").addEventListener("click", () => openTaskChannel(task));
+      card.querySelector("[data-action='delete-task']").addEventListener("click", () => deleteTask(task));
+      body.append(card);
+    }
+
+    els.taskBoard.append(laneEl);
+  }
+}
+
+function sortedTaskLanes(lanes) {
+  return [...lanes].sort((a, b) => (a.position || 0) - (b.position || 0) || a.name.localeCompare(b.name));
+}
+
+function taskLaneOptionsHTML(lanes, selectedID) {
+  return lanes
+    .map((lane) => `<option value="${escapeHTML(lane.id)}" ${lane.id === selectedID ? "selected" : ""}>${escapeHTML(lane.name)}</option>`)
+    .join("");
 }
 
 function renderAgentSkillLibrary() {
@@ -1574,6 +1807,12 @@ function formatTime(value) {
   if (!value) return "";
   const date = new Date(value);
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatTaskTime(value) {
+  if (!value) return "No timestamp";
+  const date = new Date(value);
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function linkMentions(text) {

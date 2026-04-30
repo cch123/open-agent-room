@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -46,6 +47,7 @@ func (s *Store) load() error {
 	s.ensureAgentRuntimeDefaultsLocked()
 	s.ensureSkillLibraryLocked()
 	s.ensureChannelDefaultsLocked()
+	s.ensureTaskDefaultsLocked()
 	return nil
 }
 
@@ -219,6 +221,164 @@ func (s *Store) DeleteChannel(id string) (protocol.Channel, error) {
 		return ch, s.saveLocked()
 	}
 	return protocol.Channel{}, errors.New("channel not found")
+}
+
+func (s *Store) AddTaskLane(name string) (protocol.TaskLane, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return protocol.TaskLane{}, errors.New("lane name is required")
+	}
+	lane := protocol.TaskLane{
+		ID:       "lane_" + slugWithFallback(name, "lane"),
+		Name:     name,
+		Position: len(s.state.TaskLanes),
+	}
+	for _, existing := range s.state.TaskLanes {
+		if existing.ID == lane.ID {
+			lane.ID = protocol.NewID("lane")
+			break
+		}
+	}
+	s.state.TaskLanes = append(s.state.TaskLanes, lane)
+	s.normalizeTaskLanePositionsLocked()
+	s.touchLocked()
+	return lane, s.saveLocked()
+}
+
+func (s *Store) DeleteTaskLane(id string) (protocol.TaskLane, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.ToLower(strings.TrimSpace(id))
+	if len(s.state.TaskLanes) <= 1 {
+		return protocol.TaskLane{}, errors.New("cannot delete the last lane")
+	}
+	index := s.findTaskLaneIndexLocked(id)
+	if index == -1 {
+		return protocol.TaskLane{}, errors.New("lane not found")
+	}
+	deleted := s.state.TaskLanes[index]
+	s.state.TaskLanes = append(s.state.TaskLanes[:index], s.state.TaskLanes[index+1:]...)
+	fallback := s.firstTaskLaneIDLocked()
+	if fallback == "" {
+		return protocol.TaskLane{}, errors.New("no fallback lane available")
+	}
+	for i := range s.state.Tasks {
+		if s.state.Tasks[i].LaneID == deleted.ID {
+			s.state.Tasks[i].LaneID = fallback
+			s.state.Tasks[i].UpdatedAt = protocol.Now()
+		}
+	}
+	s.normalizeTaskLanePositionsLocked()
+	s.touchLocked()
+	return deleted, s.saveLocked()
+}
+
+func (s *Store) AddTask(title, description, laneID, createdBy string) (protocol.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return protocol.Task{}, errors.New("task title is required")
+	}
+	laneID = strings.TrimSpace(laneID)
+	if laneID == "" {
+		laneID = s.firstTaskLaneIDLocked()
+	}
+	if !s.taskLaneExistsLocked(laneID) {
+		return protocol.Task{}, errors.New("lane not found")
+	}
+	now := protocol.Now()
+	task := protocol.Task{
+		ID:          protocol.NewID("task"),
+		Title:       title,
+		Description: strings.TrimSpace(description),
+		LaneID:      laneID,
+		CreatedBy:   strings.TrimSpace(createdBy),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	s.state.Tasks = append(s.state.Tasks, task)
+	s.touchLocked()
+	return task, s.saveLocked()
+}
+
+func (s *Store) UpdateTask(id string, title, description, laneID *string) (protocol.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.TrimSpace(id)
+	for i := range s.state.Tasks {
+		if s.state.Tasks[i].ID != id {
+			continue
+		}
+		if title != nil {
+			next := strings.TrimSpace(*title)
+			if next == "" {
+				return protocol.Task{}, errors.New("task title is required")
+			}
+			s.state.Tasks[i].Title = next
+		}
+		if description != nil {
+			s.state.Tasks[i].Description = strings.TrimSpace(*description)
+		}
+		if laneID != nil {
+			next := strings.TrimSpace(*laneID)
+			if next == "" || !s.taskLaneExistsLocked(next) {
+				return protocol.Task{}, errors.New("lane not found")
+			}
+			s.state.Tasks[i].LaneID = next
+		}
+		s.state.Tasks[i].UpdatedAt = protocol.Now()
+		s.touchLocked()
+		return s.state.Tasks[i], s.saveLocked()
+	}
+	return protocol.Task{}, errors.New("task not found")
+}
+
+func (s *Store) DeleteTask(id string) (protocol.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id = strings.TrimSpace(id)
+	for i, task := range s.state.Tasks {
+		if task.ID != id {
+			continue
+		}
+		s.state.Tasks = append(s.state.Tasks[:i], s.state.Tasks[i+1:]...)
+		s.touchLocked()
+		return task, s.saveLocked()
+	}
+	return protocol.Task{}, errors.New("task not found")
+}
+
+func (s *Store) CreateTaskChannel(taskID string) (protocol.Task, protocol.Channel, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	taskID = strings.TrimSpace(taskID)
+	for i := range s.state.Tasks {
+		if s.state.Tasks[i].ID != taskID {
+			continue
+		}
+		if s.state.Tasks[i].ChannelID != "" {
+			if ch, ok := s.findChannelLocked(s.state.Tasks[i].ChannelID); ok {
+				return s.state.Tasks[i], ch, false, nil
+			}
+		}
+		name := s.uniqueChannelNameLocked("task-" + slugWithFallback(s.state.Tasks[i].Title, "task"))
+		ch := protocol.Channel{
+			ID:             protocol.NewID("chan"),
+			Name:           name,
+			Topic:          "Task discussion: " + s.state.Tasks[i].Title,
+			MemberIDs:      s.allParticipantIDsLocked(),
+			DefaultAgentID: s.firstAgentIDLocked(),
+		}
+		s.state.Channels = append(s.state.Channels, ch)
+		s.state.Tasks[i].ChannelID = ch.ID
+		s.state.Tasks[i].UpdatedAt = protocol.Now()
+		s.touchLocked()
+		return s.state.Tasks[i], ch, true, s.saveLocked()
+	}
+	return protocol.Task{}, protocol.Channel{}, false, errors.New("task not found")
 }
 
 func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string, skills []protocol.AgentSkill, existingSkillIDs []string) (protocol.Agent, error) {
@@ -573,6 +733,7 @@ func DefaultState() protocol.State {
 			{ID: "chan_general", Name: "general", Topic: "Daily human-agent collaboration", MemberIDs: []string{"usr_you", "agent_ada", "agent_lin"}, DefaultAgentID: "agent_ada"},
 			{ID: "chan_build-room", Name: "build-room", Topic: "Implementation tasks, reviews, and handoffs", MemberIDs: []string{"usr_you", "agent_lin", "agent_ada"}, DefaultAgentID: "agent_lin"},
 		},
+		TaskLanes: defaultTaskLanes(),
 		Agents: []protocol.Agent{
 			{ID: "agent_ada", Name: "Ada", Persona: "Systems designer who turns rough requests into concrete plans.", Runtime: "codex", Status: "waiting", Capabilities: []string{"plan", "review", "remember"}, Color: "#0f766e"},
 			{ID: "agent_lin", Name: "Lin", Persona: "Implementation agent focused on small verified changes.", Runtime: "codex", Status: "waiting", Capabilities: []string{"implement", "test", "summarize"}, Color: "#b45309"},
@@ -580,6 +741,16 @@ func DefaultState() protocol.State {
 		Messages: []protocol.Message{
 			{ID: protocol.NewID("msg"), ChannelID: "chan_general", AuthorKind: "system", AuthorID: "system", AuthorName: "System", Text: "Workspace created. Connect the local daemon, then mention @Ada or @Lin.", Kind: "system", Timestamp: now},
 		},
+	}
+}
+
+func defaultTaskLanes() []protocol.TaskLane {
+	return []protocol.TaskLane{
+		{ID: "lane_backlog", Name: "Backlog", Position: 0},
+		{ID: "lane_todo", Name: "Todo", Position: 1},
+		{ID: "lane_doing", Name: "Doing", Position: 2},
+		{ID: "lane_done", Name: "Done", Position: 3},
+		{ID: "lane_unplanned", Name: "Unplanned", Position: 4},
 	}
 }
 
@@ -668,6 +839,80 @@ func findSkill(skills []protocol.AgentSkill, id string) (protocol.AgentSkill, bo
 		}
 	}
 	return protocol.AgentSkill{}, false
+}
+
+func (s *Store) findTaskLaneIndexLocked(id string) int {
+	id = strings.ToLower(strings.TrimSpace(id))
+	for i, lane := range s.state.TaskLanes {
+		if strings.ToLower(lane.ID) == id || strings.ToLower(lane.Name) == id || strings.TrimPrefix(strings.ToLower(lane.ID), "lane_") == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s *Store) taskLaneExistsLocked(id string) bool {
+	return s.findTaskLaneIndexLocked(id) != -1
+}
+
+func (s *Store) firstTaskLaneIDLocked() string {
+	if len(s.state.TaskLanes) == 0 {
+		return ""
+	}
+	for _, lane := range s.state.TaskLanes {
+		if lane.ID == "lane_unplanned" {
+			return lane.ID
+		}
+	}
+	return s.state.TaskLanes[0].ID
+}
+
+func (s *Store) normalizeTaskLanePositionsLocked() {
+	for i := range s.state.TaskLanes {
+		s.state.TaskLanes[i].Position = i
+	}
+}
+
+func (s *Store) findChannelLocked(id string) (protocol.Channel, bool) {
+	id = strings.TrimSpace(strings.TrimPrefix(id, "#"))
+	for _, ch := range s.state.Channels {
+		if ch.ID == id || ch.Name == id {
+			return ch, true
+		}
+	}
+	return protocol.Channel{}, false
+}
+
+func (s *Store) allParticipantIDsLocked() []string {
+	var memberIDs []string
+	for _, user := range s.state.Users {
+		memberIDs = appendUnique(memberIDs, user.ID)
+	}
+	for _, agent := range s.state.Agents {
+		memberIDs = appendUnique(memberIDs, agent.ID)
+	}
+	return memberIDs
+}
+
+func (s *Store) firstAgentIDLocked() string {
+	if len(s.state.Agents) == 0 {
+		return ""
+	}
+	return s.state.Agents[0].ID
+}
+
+func (s *Store) uniqueChannelNameLocked(base string) string {
+	base = strings.Trim(slugWithFallback(base, "task"), "-")
+	if base == "" {
+		base = strings.TrimPrefix(protocol.NewID("task"), "task_")
+	}
+	candidate := base
+	for suffix := 2; ; suffix++ {
+		if _, ok := s.findChannelLocked(candidate); !ok {
+			return candidate
+		}
+		candidate = base + "-" + strconv.Itoa(suffix)
+	}
 }
 
 func agentHasLegacySkill(agent protocol.Agent, skillID string) bool {
@@ -846,6 +1091,45 @@ func (s *Store) ensureSkillLibraryLocked() {
 		}
 		s.state.Agents[i].SkillIDs = skillIDs
 		s.state.Agents[i].Skills = nil
+	}
+}
+
+func (s *Store) ensureTaskDefaultsLocked() {
+	if len(s.state.TaskLanes) == 0 {
+		s.state.TaskLanes = defaultTaskLanes()
+	}
+	seen := make(map[string]bool, len(s.state.TaskLanes))
+	for i := range s.state.TaskLanes {
+		if strings.TrimSpace(s.state.TaskLanes[i].ID) == "" {
+			s.state.TaskLanes[i].ID = "lane_" + slugWithFallback(s.state.TaskLanes[i].Name, "lane")
+		}
+		if strings.TrimSpace(s.state.TaskLanes[i].Name) == "" {
+			s.state.TaskLanes[i].Name = "Lane"
+		}
+		if seen[s.state.TaskLanes[i].ID] {
+			s.state.TaskLanes[i].ID = protocol.NewID("lane")
+		}
+		seen[s.state.TaskLanes[i].ID] = true
+	}
+	s.normalizeTaskLanePositionsLocked()
+
+	fallback := s.firstTaskLaneIDLocked()
+	for i := range s.state.Tasks {
+		if s.state.Tasks[i].ID == "" {
+			s.state.Tasks[i].ID = protocol.NewID("task")
+		}
+		if strings.TrimSpace(s.state.Tasks[i].Title) == "" {
+			s.state.Tasks[i].Title = "Untitled task"
+		}
+		if s.state.Tasks[i].LaneID == "" || !s.taskLaneExistsLocked(s.state.Tasks[i].LaneID) {
+			s.state.Tasks[i].LaneID = fallback
+		}
+		if s.state.Tasks[i].CreatedAt == "" {
+			s.state.Tasks[i].CreatedAt = protocol.Now()
+		}
+		if s.state.Tasks[i].UpdatedAt == "" {
+			s.state.Tasks[i].UpdatedAt = s.state.Tasks[i].CreatedAt
+		}
 	}
 }
 

@@ -115,6 +115,10 @@ func main() {
 	mux.HandleFunc("/api/users/", a.handleUserSubroutes)
 	mux.HandleFunc("/api/skills", a.handleSkills)
 	mux.HandleFunc("/api/skills/", a.handleSkillSubroutes)
+	mux.HandleFunc("/api/task-lanes", a.handleTaskLanes)
+	mux.HandleFunc("/api/task-lanes/", a.handleTaskLaneSubroutes)
+	mux.HandleFunc("/api/tasks", a.handleTasks)
+	mux.HandleFunc("/api/tasks/", a.handleTaskSubroutes)
 	mux.HandleFunc("/api/agents", a.handleAgents)
 	mux.HandleFunc("/api/agents/", a.handleAgentSubroutes)
 	mux.HandleFunc("/daemon", a.handleDaemon)
@@ -387,6 +391,138 @@ func (a *app) handleSkillSubroutes(w http.ResponseWriter, r *http.Request) {
 	_ = a.store.AddEnvelope(env)
 	a.broadcast()
 	writeJSON(w, http.StatusOK, skill)
+}
+
+func (a *app) handleTaskLanes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	lane, err := a.store.AddTaskLane(req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task_lane.created", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, lane, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusCreated, lane)
+}
+
+func (a *app) handleTaskLaneSubroutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/task-lanes/"), "/")
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w)
+		return
+	}
+	if path == "" || strings.Contains(path, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	lane, err := a.store.DeleteTaskLane(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task_lane.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, lane, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusOK, lane)
+}
+
+func (a *app) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	var req struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		LaneID      string `json:"laneId"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	task, err := a.store.AddTask(req.Title, req.Description, req.LaneID, "usr_you")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "task.created", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, task, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusCreated, task)
+}
+
+func (a *app) handleTaskSubroutes(w http.ResponseWriter, r *http.Request) {
+	taskPath := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/")
+	if r.Method == http.MethodPost && strings.HasSuffix(taskPath, "/channel") {
+		taskID := strings.Trim(strings.TrimSuffix(taskPath, "/channel"), "/")
+		if taskID == "" || strings.Contains(taskID, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		task, ch, created, err := a.store.CreateTaskChannel(taskID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		eventType := "task.channel.opened"
+		if created {
+			eventType = "task.channel.created"
+		}
+		payload := map[string]any{"task": task, "channel": ch, "created": created}
+		env := protocol.NewEnvelope(a.store.ServerID(), eventType, protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "task", ID: task.ID}, payload, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusOK, payload)
+		return
+	}
+	if taskPath == "" || strings.Contains(taskPath, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	switch r.Method {
+	case http.MethodPatch:
+		var req struct {
+			Title       *string `json:"title"`
+			Description *string `json:"description"`
+			LaneID      *string `json:"laneId"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		task, err := a.store.UpdateTask(taskPath, req.Title, req.Description, req.LaneID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		env := protocol.NewEnvelope(a.store.ServerID(), "task.updated", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "task", ID: task.ID}, task, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusOK, task)
+	case http.MethodDelete:
+		task, err := a.store.DeleteTask(taskPath)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		env := protocol.NewEnvelope(a.store.ServerID(), "task.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, task, "")
+		_ = a.store.AddEnvelope(env)
+		a.broadcast()
+		writeJSON(w, http.StatusOK, task)
+	default:
+		methodNotAllowed(w)
+	}
 }
 
 func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {

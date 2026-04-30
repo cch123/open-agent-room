@@ -272,6 +272,83 @@ func TestAddAgentAttachesExistingSkillIDs(t *testing.T) {
 	}
 }
 
+func TestTasksCanMoveAndOpenDiscussionChannel(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Snapshot().TaskLanes) == 0 {
+		t.Fatal("default task lanes were not initialized")
+	}
+
+	task, err := st.AddTask("Review routing", "Check mention routing edge cases.", "lane_todo", "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doing := "lane_doing"
+	updated, err := st.UpdateTask(task.ID, nil, nil, &doing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.LaneID != doing {
+		t.Fatalf("task lane = %s, want %s", updated.LaneID, doing)
+	}
+
+	linked, ch, created, err := st.CreateTaskChannel(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected first task channel call to create a channel")
+	}
+	if linked.ChannelID != ch.ID {
+		t.Fatalf("task channel = %s, want %s", linked.ChannelID, ch.ID)
+	}
+
+	again, same, created, err := st.CreateTaskChannel(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Fatal("expected second task channel call to reuse existing channel")
+	}
+	if again.ChannelID != linked.ChannelID || same.ID != ch.ID {
+		t.Fatalf("task channel was not reused: task=%s channel=%s", again.ChannelID, same.ID)
+	}
+}
+
+func TestDeleteTaskLaneMovesTasksToFallback(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, err := st.AddTaskLane("Blocked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.AddTask("Wait for design", "", lane.ID, "usr_you")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DeleteTaskLane(lane.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := st.Snapshot()
+	for _, got := range snapshot.Tasks {
+		if got.ID == task.ID {
+			if got.LaneID == lane.ID {
+				t.Fatalf("task remained in deleted lane %s", lane.ID)
+			}
+			if got.LaneID == "" {
+				t.Fatal("task did not move to a fallback lane")
+			}
+			return
+		}
+	}
+	t.Fatal("task disappeared after deleting its lane")
+}
+
 func contains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

@@ -112,12 +112,31 @@ type Message struct {
 	ProtocolID string   `json:"protocolId,omitempty"`
 }
 
+type TaskLane struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
+}
+
+type Task struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	LaneID      string `json:"laneId"`
+	ChannelID   string `json:"channelId,omitempty"`
+	CreatedBy   string `json:"createdBy,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
 type State struct {
 	Meta          Meta         `json:"meta"`
 	CurrentUserID string       `json:"currentUserId"`
 	Users         []User       `json:"users"`
 	Channels      []Channel    `json:"channels"`
 	Skills        []AgentSkill `json:"skills,omitempty"`
+	TaskLanes     []TaskLane   `json:"taskLanes,omitempty"`
+	Tasks         []Task       `json:"tasks,omitempty"`
 	Agents        []Agent      `json:"agents"`
 	Daemons       []Daemon     `json:"daemons"`
 	Messages      []Message    `json:"messages"`
