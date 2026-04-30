@@ -377,14 +377,14 @@ function renderTaskChannelContext(task, lane, isManagementView) {
 
 function renderMessageContent(message) {
   if (!isMarkdownDocumentMessage(message)) {
-    return `<div class="message-text">${linkMentions(escapeHTML(message.text))}</div>`;
+    return renderChatBlocks(message.text);
   }
   const parts = markdownDocumentParts(message);
   const title = markdownDocumentTitle(parts.document);
   const stats = markdownStats(parts.document);
   const excerpt = markdownExcerpt(parts.document, title);
-  const before = parts.before ? `<div class="message-text">${linkMentions(escapeHTML(parts.before))}</div>` : "";
-  const after = parts.after ? `<div class="message-text">${linkMentions(escapeHTML(parts.after))}</div>` : "";
+  const before = parts.before ? renderChatBlocks(parts.before) : "";
+  const after = parts.after ? renderChatBlocks(parts.after) : "";
   return `
     ${before}
     <button class="markdown-card" type="button" data-markdown-document="${escapeHTML(message.id || "")}">
@@ -397,6 +397,11 @@ function renderMessageContent(message) {
       <span class="markdown-card-action">Open</span>
     </button>
     ${after}`;
+}
+
+function renderChatBlocks(text = "") {
+  const rendered = renderMarkdown(normalizeChatBlockMarkdown(text || ""));
+  return rendered ? `<div class="message-blocks">${rendered}</div>` : "";
 }
 
 function isMarkdownDocumentMessage(message) {
@@ -2100,6 +2105,10 @@ function normalizeSkillPreviewMarkdown(text = "") {
 
 function stripSkillFileLabel(text = "") {
   return text.replace(/^\s*>?\s*SKILL\.md\s*\n+/i, "");
+}
+
+function normalizeChatBlockMarkdown(text = "") {
+  return text.replace(/\r\n/g, "\n").trim();
 }
 
 function appendAutoFencedBlock(out, lines, start, continues) {
