@@ -26,6 +26,7 @@ import (
 const (
 	maxAgentThreadDepth       = 6
 	maxRemoteSkillContentSize = 64 * 1024
+	maxRemoteSkillPageSize    = 2 * 1024 * 1024
 )
 
 var skillImportHTTPClient = &http.Client{Timeout: 8 * time.Second}
@@ -1289,11 +1290,15 @@ func fetchRemoteSkillContent(r *http.Request, source, sourceKind string) (string
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return "", fmt.Errorf("could not fetch skill source: HTTP %d", res.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxRemoteSkillContentSize+1))
+	limit := maxRemoteSkillContentSize
+	if sourceKind == "skills.sh" {
+		limit = maxRemoteSkillPageSize
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
 	if err != nil {
 		return "", fmt.Errorf("could not read skill source: %w", err)
 	}
-	if len(body) > maxRemoteSkillContentSize {
+	if len(body) > limit {
 		return "", errors.New("skill source content is too large")
 	}
 	content := strings.TrimSpace(string(body))
@@ -1305,6 +1310,9 @@ func fetchRemoteSkillContent(r *http.Request, source, sourceKind string) (string
 	}
 	if content == "" {
 		return "", errors.New("skill source returned empty content")
+	}
+	if len([]byte(content)) > maxRemoteSkillContentSize {
+		return "", errors.New("skill content is too large")
 	}
 	return content, nil
 }

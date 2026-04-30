@@ -344,6 +344,38 @@ func TestHandleSkillsImportsSkillsSHPage(t *testing.T) {
 	}
 }
 
+func TestHandleSkillsImportsLargeSkillsSHPageWithSmallSkillContent(t *testing.T) {
+	withSkillImportClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body := `<!doctype html><html><body>` +
+			strings.Repeat(`<div>navigation and app shell padding</div>`, 2400) +
+			`<div>SKILL.md</div><div><h1>Architecture Patterns</h1><p>Use clean boundaries.</p></div></body></html>`
+		if len(body) <= maxRemoteSkillContentSize {
+			t.Fatalf("test fixture should exceed raw content limit, got %d", len(body))
+		}
+		return textResponse(http.StatusOK, body), nil
+	}))
+
+	a := newTestApp(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/skills", strings.NewReader(`{"source":"https://skills.sh/wshobson/agents/architecture-patterns"}`))
+	rec := httptest.NewRecorder()
+
+	a.handleSkills(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var skill protocol.AgentSkill
+	if err := json.NewDecoder(rec.Body).Decode(&skill); err != nil {
+		t.Fatal(err)
+	}
+	if skill.Name != "Architecture Patterns" {
+		t.Fatalf("name = %q, want derived skills.sh heading", skill.Name)
+	}
+	if len(skill.Content) > maxRemoteSkillContentSize {
+		t.Fatalf("content length = %d, want extracted skill under limit", len(skill.Content))
+	}
+}
+
 func TestHandleSkillsParsesNPXInstallCommand(t *testing.T) {
 	withSkillImportClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.String() != "https://skills.sh/wshobson/agents/architecture-patterns" {
