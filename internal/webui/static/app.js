@@ -6,6 +6,7 @@ const state = {
   view: "channel",
   channelId: "chan_general",
   theme: initialTheme(),
+  debugOpen: false,
   read: initialChannelReadState(),
   selectedEventId: null,
   mention: {
@@ -67,6 +68,7 @@ const runtimeModels = {
 };
 
 const els = {
+  appShell: document.querySelector(".app-shell"),
   channelList: document.querySelector("#channel-list"),
   userList: document.querySelector("#user-list"),
   agentList: document.querySelector("#agent-list"),
@@ -79,6 +81,9 @@ const els = {
   roomName: document.querySelector("#room-name"),
   defaultAgentControl: document.querySelector(".default-agent-control"),
   daemonChip: document.querySelector("#daemon-chip"),
+  debugToggle: document.querySelector("#debug-toggle"),
+  debugClose: document.querySelector("#debug-close"),
+  inspector: document.querySelector("#debug-inspector"),
   daemonCount: document.querySelector("#daemon-count"),
   taskContext: document.querySelector("#task-context"),
   messages: document.querySelector("#messages"),
@@ -234,6 +239,7 @@ function render() {
   }
   renderTaskChatDrawer(tasks, channels, users, agents, taskLanes, isTaskView);
   renderDaemon(daemons);
+  renderDebugMode();
   renderChannelSettings(current, agents);
   renderAssign(agents);
   renderEvents(events);
@@ -333,26 +339,32 @@ function renderAgents(agents) {
     });
     const skillButton = document.createElement("button");
     skillButton.type = "button";
-    skillButton.className = "item-action";
-    skillButton.title = `Import skill into ${agent.name}`;
-    skillButton.setAttribute("aria-label", `Import skill into ${agent.name}`);
-    skillButton.textContent = "Skill";
+    skillButton.className = "agent-action-button";
+    skillButton.title = `Manage skills for ${agent.name}`;
+    skillButton.dataset.tooltip = `Manage skills\n${agent.name}`;
+    skillButton.setAttribute("aria-label", `Manage skills for ${agent.name}`);
+    skillButton.textContent = "✦";
     skillButton.addEventListener("click", () => openSkillDialog(agent));
     const editButton = document.createElement("button");
     editButton.type = "button";
-    editButton.className = "item-action";
+    editButton.className = "agent-action-button";
     editButton.title = `Edit ${agent.name}`;
+    editButton.dataset.tooltip = `Edit agent\n${agent.name}`;
     editButton.setAttribute("aria-label", `Edit agent ${agent.name}`);
-    editButton.textContent = "Edit";
+    editButton.textContent = "✎";
     editButton.addEventListener("click", () => openAgentDialog(agent));
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
-    deleteButton.className = "item-delete";
+    deleteButton.className = "agent-action-button danger";
     deleteButton.title = `Delete ${agent.name}`;
+    deleteButton.dataset.tooltip = `Delete agent\n${agent.name}`;
     deleteButton.setAttribute("aria-label", `Delete agent ${agent.name}`);
     deleteButton.textContent = "x";
     deleteButton.addEventListener("click", () => deleteAgent(agent));
-    row.append(button, editButton, skillButton, deleteButton);
+    const actionGroup = document.createElement("div");
+    actionGroup.className = "agent-actions";
+    actionGroup.append(editButton, skillButton, deleteButton);
+    row.append(button, actionGroup);
     els.agentList.append(row);
   }
   state.agentStatusById = nextAgentStatusById;
@@ -897,6 +909,13 @@ function renderDaemon(daemons) {
   els.daemonCount.textContent = `${online.length} online`;
 }
 
+function renderDebugMode() {
+  els.appShell.classList.toggle("debug-open", state.debugOpen);
+  els.inspector.hidden = !state.debugOpen;
+  els.debugToggle.classList.toggle("active", state.debugOpen);
+  els.debugToggle.setAttribute("aria-expanded", state.debugOpen ? "true" : "false");
+}
+
 function renderChannelSettings(channel, agents) {
   const previous = els.defaultAgent.value;
   els.defaultAgent.innerHTML = "";
@@ -1259,6 +1278,15 @@ for (const choice of els.themeChoices) {
     applyTheme(choice.dataset.themeChoice);
   });
 }
+els.debugToggle.addEventListener("click", () => {
+  state.debugOpen = !state.debugOpen;
+  renderDebugMode();
+});
+els.debugClose.addEventListener("click", () => {
+  state.debugOpen = false;
+  renderDebugMode();
+  els.debugToggle.focus();
+});
 els.settingsDialog.addEventListener("close", () => {
   els.settingsButton.focus();
 });

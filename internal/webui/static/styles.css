@@ -110,12 +110,16 @@ button:focus-visible {
 
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(240px, 17vw) minmax(360px, 1fr) minmax(300px, 24vw);
+  grid-template-columns: minmax(240px, 17vw) minmax(360px, 1fr);
   width: 100vw;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
+}
+
+.app-shell.debug-open {
+  grid-template-columns: minmax(240px, 17vw) minmax(360px, 1fr) minmax(300px, 24vw);
 }
 
 .sidebar,
@@ -137,6 +141,34 @@ button:focus-visible {
   overflow: auto;
   padding: 18px;
   background: #f8fafb;
+}
+
+.debug-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.debug-panel-heading span,
+.debug-panel-heading strong {
+  display: block;
+}
+
+.debug-panel-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.debug-panel-heading strong {
+  margin-top: 2px;
+  font-size: 18px;
+  line-height: 1.1;
 }
 
 .workspace-mark {
@@ -344,7 +376,8 @@ button:focus-visible {
 }
 
 .agent-row {
-  grid-template-columns: minmax(0, 1fr) 38px 38px 24px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
 }
 
 .nav-item,
@@ -469,6 +502,54 @@ button:focus-visible {
   color: var(--accent-strong);
 }
 
+.agent-actions {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  align-self: center;
+  opacity: 0.58;
+  transition: opacity 0.16s ease;
+}
+
+.agent-row:hover .agent-actions,
+.agent-row:focus-within .agent-actions {
+  opacity: 1;
+}
+
+.agent-action-button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.agent-action-button:hover,
+.agent-action-button:focus-visible {
+  border-color: rgba(49, 95, 122, 0.22);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.agent-action-button.danger {
+  font-size: 12px;
+}
+
+.agent-action-button.danger:hover,
+.agent-action-button.danger:focus-visible {
+  border-color: rgba(190, 18, 60, 0.18);
+  background: rgba(190, 18, 60, 0.09);
+  color: var(--rose);
+}
+
 .item-delete:hover,
 .item-delete:focus-visible {
   background: rgba(190, 18, 60, 0.09);
@@ -518,6 +599,8 @@ button:focus-visible {
 
 .agent-name-line strong {
   min-width: 0;
+  font-size: 12px;
+  line-height: 1.08;
 }
 
 .agent-status-indicator {
@@ -527,15 +610,15 @@ button:focus-visible {
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
 }
 
 .agent-status-indicator::before {
   content: "";
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
   background: var(--agent-status-color);
   box-shadow: 0 0 0 3px var(--agent-status-bg);
@@ -907,6 +990,30 @@ h2 {
   color: var(--teal);
   border-color: rgba(18, 112, 105, 0.28);
   background: rgba(18, 112, 105, 0.08);
+}
+
+.debug-toggle {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.debug-toggle:hover,
+.debug-toggle:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.debug-toggle.active {
+  border-color: rgba(49, 95, 122, 0.35);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .task-channel-context {
@@ -2862,6 +2969,7 @@ menu button:first-child:hover {
 
 :root[data-theme="dark"] .icon-button,
 :root[data-theme="dark"] .item-action,
+:root[data-theme="dark"] .agent-action-button,
 :root[data-theme="dark"] .task-lane-new,
 :root[data-theme="dark"] menu button:first-child,
 :root[data-theme="dark"] .task-toolbar-actions button:first-child {
@@ -2874,6 +2982,8 @@ menu button:first-child:hover {
 :root[data-theme="dark"] .icon-button:hover,
 :root[data-theme="dark"] .item-action:hover,
 :root[data-theme="dark"] .item-action:focus-visible,
+:root[data-theme="dark"] .agent-action-button:hover,
+:root[data-theme="dark"] .agent-action-button:focus-visible,
 :root[data-theme="dark"] .task-lane-new:hover,
 :root[data-theme="dark"] menu button:first-child:hover,
 :root[data-theme="dark"] .task-toolbar-actions button:first-child:hover {
@@ -2891,6 +3001,13 @@ menu button:first-child:hover {
 :root[data-theme="dark"] .item-delete:hover,
 :root[data-theme="dark"] .item-delete:focus-visible {
   background: rgba(251, 59, 143, 0.12);
+  color: #ff8fc8;
+}
+
+:root[data-theme="dark"] .agent-action-button.danger:hover,
+:root[data-theme="dark"] .agent-action-button.danger:focus-visible {
+  background: rgba(251, 59, 143, 0.12);
+  border-color: rgba(251, 59, 143, 0.34);
   color: #ff8fc8;
 }
 
@@ -2931,6 +3048,25 @@ menu button:first-child:hover {
   color: var(--teal);
   border-color: rgba(45, 212, 191, 0.34);
   background: rgba(45, 212, 191, 0.09);
+}
+
+:root[data-theme="dark"] .debug-toggle {
+  border-color: var(--line);
+  background: rgba(15, 23, 38, 0.72);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .debug-toggle:hover,
+:root[data-theme="dark"] .debug-toggle:focus-visible,
+:root[data-theme="dark"] .debug-toggle.active {
+  border-color: rgba(34, 211, 238, 0.34);
+  background: rgba(34, 211, 238, 0.1);
+  color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .debug-toggle.active {
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 18px rgba(34, 211, 238, 0.1);
 }
 
 :root[data-theme="dark"] .messages,
@@ -3177,6 +3313,10 @@ menu button:first-child:hover {
 
 @media (max-width: 1280px) {
   .app-shell {
+    grid-template-columns: 240px minmax(340px, 1fr);
+  }
+
+  .app-shell.debug-open {
     grid-template-columns: 240px minmax(340px, 1fr) 300px;
   }
 
@@ -3194,13 +3334,34 @@ menu button:first-child:hover {
     grid-template-columns: minmax(220px, 28vw) minmax(0, 1fr);
   }
 
+  .app-shell.debug-open {
+    grid-template-columns: minmax(220px, 28vw) minmax(0, 1fr);
+  }
+
   .inspector {
     display: none;
+  }
+
+  .app-shell.debug-open .inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1800;
+    display: block;
+    width: min(380px, calc(100vw - 18px));
+    max-width: 100vw;
+    box-shadow: -18px 0 44px rgba(21, 28, 36, 0.24);
   }
 }
 
 @media (max-width: 760px) {
   .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .app-shell.debug-open {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
   }
@@ -3378,7 +3539,7 @@ menu button:first-child:hover {
   }
 
   .agent-row {
-    grid-template-columns: minmax(0, 1fr) 40px 40px 26px;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .nav-item,
@@ -3398,6 +3559,11 @@ menu button:first-child:hover {
 
   .item-delete {
     width: 24px;
+  }
+
+  .agent-action-button {
+    width: 22px;
+    height: 22px;
   }
 
   .item-action {

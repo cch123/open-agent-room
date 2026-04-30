@@ -78,6 +78,7 @@
               <select id="default-agent"></select>
             </label>
             <div id="daemon-chip" class="daemon-chip">daemon offline</div>
+            <button id="debug-toggle" class="debug-toggle" type="button" aria-expanded="false" aria-controls="debug-inspector">Debug</button>
           </div>
         </header>
 
@@ -155,7 +156,15 @@
         </form>
       </main>
 
-      <aside class="inspector" aria-label="Protocol inspector">
+      <aside id="debug-inspector" class="inspector" aria-label="Debug protocol inspector" hidden>
+        <div class="debug-panel-heading">
+          <div>
+            <span>Debug Mode</span>
+            <strong>Agent protocol</strong>
+          </div>
+          <button id="debug-close" class="icon-button" type="button" aria-label="Close debug panel">x</button>
+        </div>
+
         <section class="panel">
           <div class="panel-heading">
             <h2>Local Daemon</h2>
