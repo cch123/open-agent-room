@@ -14,6 +14,12 @@ const state = {
 const markdownDocumentStartMarker = "<<<MARKDOWN_DOCUMENT>>>";
 const markdownDocumentEndMarker = "<<<END_MARKDOWN_DOCUMENT>>>";
 
+const hoverTooltip = document.createElement("div");
+hoverTooltip.className = "hover-tooltip";
+hoverTooltip.hidden = true;
+document.body.append(hoverTooltip);
+let hoverTooltipTarget = null;
+
 const runtimeModels = {
   codex: [
     ["", "CLI default"],
@@ -130,6 +136,7 @@ function renderChannels(channels) {
     const button = document.createElement("button");
     button.className = `nav-item ${channel.id === state.channelId ? "active" : ""}`;
     button.title = channel.topic ? `#${channel.name} - ${channel.topic}` : `#${channel.name}`;
+    button.dataset.tooltip = channel.topic ? `#${channel.name}\n${channel.topic}` : `#${channel.name}`;
     button.innerHTML = `<span class="hash">#</span><span><strong>${escapeHTML(channel.name)}</strong><span class="nav-topic">${escapeHTML(channel.topic || "")}</span></span>`;
     button.addEventListener("click", () => {
       state.channelId = channel.id;
@@ -156,6 +163,7 @@ function renderUsers(users) {
     const item = document.createElement("div");
     item.className = "human-item";
     item.title = user.id === currentUserId ? `${user.name} - current human` : `${user.name} - registered human`;
+    item.dataset.tooltip = user.id === currentUserId ? `${user.name}\ncurrent human` : `${user.name}\nhuman participant`;
     item.innerHTML = `<span class="avatar" style="background:${user.color || "#2563eb"}">${initials(user.name)}</span><span><strong>${escapeHTML(user.name)}</strong><span class="human-meta">${user.id === currentUserId ? "current human" : "human participant"}</span></span>`;
     row.append(item);
 
@@ -185,6 +193,7 @@ function renderAgents(agents) {
     const promptMeta = agent.systemPrompt ? " · system prompt" : "";
     const meta = `${agent.status} · ${runtimeLabel(agent)}${skillMeta}${promptMeta} · ${agent.persona}`;
     button.title = `${agent.name} - ${meta}`;
+    button.dataset.tooltip = `${agent.name}\n${meta}`;
     button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
       insertMention(agent.name);
@@ -704,6 +713,31 @@ els.input.addEventListener("blur", () => {
   window.setTimeout(hideMentionSuggestions, 120);
 });
 
+document.addEventListener("mouseover", (event) => {
+  const target = event.target.closest?.("[data-tooltip]");
+  if (target) showHoverTooltip(target);
+});
+
+document.addEventListener("mousemove", () => {
+  if (hoverTooltipTarget) positionHoverTooltip(hoverTooltipTarget);
+});
+
+document.addEventListener("mouseout", (event) => {
+  if (!hoverTooltipTarget) return;
+  const related = event.relatedTarget;
+  if (related instanceof Node && hoverTooltipTarget.contains(related)) return;
+  hideHoverTooltip();
+});
+
+document.addEventListener("focusin", (event) => {
+  const target = event.target.closest?.("[data-tooltip]");
+  if (target) showHoverTooltip(target);
+});
+
+document.addEventListener("focusout", hideHoverTooltip);
+window.addEventListener("resize", hideHoverTooltip);
+window.addEventListener("scroll", hideHoverTooltip, true);
+
 els.assignButton.addEventListener("click", async () => {
   const task = els.assignTask.value.trim();
   const agentId = els.assignAgent.value;
@@ -902,6 +936,29 @@ function insertMention(name) {
   const suffix = els.input.value && !els.input.value.endsWith(" ") ? " " : "";
   els.input.value += `${suffix}@${name.replace(/\s+/g, "-")} `;
   els.input.focus();
+}
+
+function showHoverTooltip(target) {
+  const text = target.dataset.tooltip;
+  if (!text) return;
+  hoverTooltipTarget = target;
+  hoverTooltip.textContent = text;
+  hoverTooltip.hidden = false;
+  positionHoverTooltip(target);
+}
+
+function positionHoverTooltip(target) {
+  const rect = target.getBoundingClientRect();
+  const width = Math.min(260, window.innerWidth - 24);
+  const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
+  const top = Math.min(rect.bottom + 8, Math.max(12, window.innerHeight - hoverTooltip.offsetHeight - 12));
+  hoverTooltip.style.left = `${left}px`;
+  hoverTooltip.style.top = `${top}px`;
+}
+
+function hideHoverTooltip() {
+  hoverTooltipTarget = null;
+  hoverTooltip.hidden = true;
 }
 
 function populateModelOptions(runtime) {

@@ -217,6 +217,7 @@ button:focus-visible {
 .nav-item,
 .human-item,
 .agent-item {
+  position: relative;
   width: 100%;
   display: grid;
   grid-template-columns: 28px 1fr;
@@ -355,10 +356,9 @@ button:focus-visible {
 .human-item:focus-within .human-meta,
 .agent-item:hover .agent-meta,
 .agent-item:focus-visible .agent-meta {
-  overflow: visible;
-  overflow-wrap: anywhere;
-  text-overflow: clip;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conversation {
@@ -369,6 +369,25 @@ button:focus-visible {
   background: var(--surface);
   border-left: 1px solid rgba(212, 219, 227, 0.72);
   border-right: 1px solid rgba(212, 219, 227, 0.72);
+}
+
+.hover-tooltip {
+  position: fixed;
+  z-index: 2000;
+  width: min(260px, calc(100vw - 24px));
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid rgba(194, 202, 212, 0.92);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  white-space: pre-line;
 }
 
 .room-header {
