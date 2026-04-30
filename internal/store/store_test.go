@@ -3,6 +3,8 @@ package store
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/xargin/open-agent-room/internal/protocol"
 )
 
 func TestDeleteChannelRemovesMessagesAndKeepsOneChannel(t *testing.T) {
@@ -134,6 +136,32 @@ func TestAddAndDeleteAgentSkill(t *testing.T) {
 	for _, agent := range snapshot.Agents {
 		if agent.ID == "agent_ada" && len(agent.Skills) != 0 {
 			t.Fatalf("deleted skill remained on agent_ada: %+v", agent.Skills)
+		}
+	}
+}
+
+func TestAddAgentStoresSystemPromptAndInitialSkills(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent, err := st.AddAgent("Reviewer", "Reviews changes", "Only report concrete findings.", "codex", "default", []protocol.AgentSkill{
+		{Name: "Review Discipline", Source: "create-agent", Content: "Lead with defects."},
+		{Name: "Go Workflow", Source: "create-agent", Content: "Run go test ./..."},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.SystemPrompt != "Only report concrete findings." {
+		t.Fatalf("system prompt = %q", agent.SystemPrompt)
+	}
+	if len(agent.Skills) != 2 {
+		t.Fatalf("skills = %d, want 2", len(agent.Skills))
+	}
+	for _, skill := range agent.Skills {
+		if skill.ID == "" || skill.CreatedAt == "" {
+			t.Fatalf("skill was not normalized: %+v", skill)
 		}
 	}
 }

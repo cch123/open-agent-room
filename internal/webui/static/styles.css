@@ -25,6 +25,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -798,6 +802,10 @@ dialog {
 dialog::backdrop {
   background: rgba(18, 25, 33, 0.34);
   backdrop-filter: blur(2px);
+}
+
+#agent-dialog {
+  width: min(560px, calc(100vw - 28px));
 }
 
 .dialog-body {

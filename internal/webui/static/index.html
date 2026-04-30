@@ -108,6 +108,10 @@
           Persona
           <textarea id="agent-persona" rows="3" placeholder="Researcher who turns uncertainty into clear notes."></textarea>
         </label>
+        <label>
+          System prompt
+          <textarea id="agent-system-prompt" rows="4" placeholder="Non-negotiable behavior and operating constraints for this agent."></textarea>
+        </label>
         <div class="runtime-grid">
           <label>
             Runtime
@@ -125,6 +129,10 @@
         <label id="agent-model-custom-row" hidden>
           Custom model
           <input id="agent-model-custom" autocomplete="off" placeholder="provider-model-name" />
+        </label>
+        <label>
+          Initial skills
+          <textarea id="agent-skills" rows="6" placeholder="# Review discipline&#10;Lead with defects and cite concrete evidence.&#10;---&#10;# Go workflow&#10;Prefer small verified changes."></textarea>
         </label>
         <menu>
           <button value="cancel">Cancel</button>

@@ -218,21 +218,27 @@ func (s *Store) DeleteChannel(id string) (protocol.Channel, error) {
 	return protocol.Channel{}, errors.New("channel not found")
 }
 
-func (s *Store) AddAgent(name, persona, runtimeName, model string) (protocol.Agent, error) {
+func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string, skills []protocol.AgentSkill) (protocol.Agent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return protocol.Agent{}, errors.New("agent name is required")
 	}
+	importedSkills, err := normalizeAgentSkills(skills)
+	if err != nil {
+		return protocol.Agent{}, err
+	}
 	agent := protocol.Agent{
 		ID:           "agent_" + slug(name),
 		Name:         name,
 		Persona:      strings.TrimSpace(persona),
+		SystemPrompt: strings.TrimSpace(systemPrompt),
 		Runtime:      normalizeRuntime(runtimeName),
 		Model:        strings.TrimSpace(model),
 		Status:       "waiting",
 		Capabilities: []string{"reply", "remember", "tasks"},
+		Skills:       importedSkills,
 		Color:        agentColor(len(s.state.Agents)),
 		LastSeen:     protocol.Now(),
 	}
@@ -312,34 +318,13 @@ func (s *Store) AddAgentSkill(agentID, name, source, content string) (protocol.A
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	agentID = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(agentID), "@"))
-	name = strings.TrimSpace(name)
-	source = strings.TrimSpace(source)
-	content = strings.TrimSpace(content)
-	if name == "" {
-		return protocol.AgentSkill{}, errors.New("skill name is required")
-	}
-	if content == "" {
-		return protocol.AgentSkill{}, errors.New("skill content is required")
-	}
-	if len([]byte(content)) > maxAgentSkillContentBytes {
-		return protocol.AgentSkill{}, errors.New("skill content is too large")
-	}
-	skill := protocol.AgentSkill{
-		ID:        "skill_" + slugWithFallback(name, "skill"),
-		Name:      name,
-		Source:    source,
-		Content:   content,
-		CreatedAt: protocol.Now(),
-	}
 	for i := range s.state.Agents {
 		if !agentMatches(s.state.Agents[i], agentID) {
 			continue
 		}
-		for _, existing := range s.state.Agents[i].Skills {
-			if existing.ID == skill.ID {
-				skill.ID = protocol.NewID("skill")
-				break
-			}
+		skill, err := newAgentSkill(name, source, content, s.state.Agents[i].Skills)
+		if err != nil {
+			return protocol.AgentSkill{}, err
 		}
 		s.state.Agents[i].Skills = append(s.state.Agents[i].Skills, skill)
 		s.touchLocked()
@@ -565,6 +550,47 @@ func userMatches(user protocol.User, id string) bool {
 
 func skillMatches(skill protocol.AgentSkill, id string) bool {
 	return strings.ToLower(skill.ID) == id || strings.ToLower(skill.Name) == id || strings.TrimPrefix(strings.ToLower(skill.ID), "skill_") == id
+}
+
+func normalizeAgentSkills(skills []protocol.AgentSkill) ([]protocol.AgentSkill, error) {
+	var out []protocol.AgentSkill
+	for _, skill := range skills {
+		normalized, err := newAgentSkill(skill.Name, skill.Source, skill.Content, out)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+func newAgentSkill(name, source, content string, existing []protocol.AgentSkill) (protocol.AgentSkill, error) {
+	name = strings.TrimSpace(name)
+	source = strings.TrimSpace(source)
+	content = strings.TrimSpace(content)
+	if name == "" {
+		return protocol.AgentSkill{}, errors.New("skill name is required")
+	}
+	if content == "" {
+		return protocol.AgentSkill{}, errors.New("skill content is required")
+	}
+	if len([]byte(content)) > maxAgentSkillContentBytes {
+		return protocol.AgentSkill{}, errors.New("skill content is too large")
+	}
+	skill := protocol.AgentSkill{
+		ID:        "skill_" + slugWithFallback(name, "skill"),
+		Name:      name,
+		Source:    source,
+		Content:   content,
+		CreatedAt: protocol.Now(),
+	}
+	for _, candidate := range existing {
+		if candidate.ID == skill.ID {
+			skill.ID = protocol.NewID("skill")
+			break
+		}
+	}
+	return skill, nil
 }
 
 func slug(value string) string {

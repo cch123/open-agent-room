@@ -25,10 +25,11 @@ func TestBuildRunnerPromptKeepsUTF8ValidForRecentContext(t *testing.T) {
 		ChannelID: "chan_general",
 		Prompt:    strings.Repeat("继续", 20),
 		Agent: protocol.Agent{
-			ID:      "agent_lin",
-			Name:    "Lin",
-			Persona: "Implementation agent",
-			Runtime: "codex",
+			ID:           "agent_lin",
+			Name:         "Lin",
+			Persona:      "Implementation agent",
+			SystemPrompt: "Always return concise implementation notes.",
+			Runtime:      "codex",
 		},
 		Recent: []protocol.Message{
 			{AuthorName: "You", Text: strings.Repeat("中文🙂", 260)},
@@ -38,6 +39,9 @@ func TestBuildRunnerPromptKeepsUTF8ValidForRecentContext(t *testing.T) {
 	got := buildRunnerPrompt(request)
 	if !utf8.ValidString(got) {
 		t.Fatalf("prompt returned invalid UTF-8")
+	}
+	if !strings.Contains(got, "System prompt:\nAlways return concise implementation notes.") {
+		t.Fatalf("prompt missing system prompt:\n%s", got)
 	}
 }
 

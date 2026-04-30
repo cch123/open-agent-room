@@ -86,8 +86,9 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 14. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.
 15. Agent replies are visible messages and also become protocol events in the inspector.
 16. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
-17. Each agent can carry imported `skills`; the daemon includes those instructions in the runner request and prompt for that agent only.
-18. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
+17. Each agent can carry a `systemPrompt`; the daemon includes it before task context for that agent only.
+18. Each agent can carry imported `skills`; the daemon includes those instructions in the runner request and prompt for that agent only.
+19. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
 
 ## Daemon Handshake
 
@@ -194,4 +195,4 @@ For general CLI agents that expect a prompt rather than structured JSON, start t
 go run ./cmd/daemon --runner 'codex --ask-for-approval never --search exec -C . --sandbox workspace-write --color never --ephemeral -' --runner-format prompt
 ```
 
-In `prompt` mode, the daemon writes a human-readable prompt containing the agent persona, runtime, model, imported skills, memories, recent channel context, and task.
+In `prompt` mode, the daemon writes a human-readable prompt containing the agent persona, system prompt, runtime, model, imported skills, memories, recent channel context, and task.

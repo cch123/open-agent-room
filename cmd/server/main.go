@@ -329,16 +329,18 @@ func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name    string `json:"name"`
-		Persona string `json:"persona"`
-		Runtime string `json:"runtime"`
-		Model   string `json:"model"`
+		Name         string                `json:"name"`
+		Persona      string                `json:"persona"`
+		SystemPrompt string                `json:"systemPrompt"`
+		Runtime      string                `json:"runtime"`
+		Model        string                `json:"model"`
+		Skills       []protocol.AgentSkill `json:"skills"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	agent, err := a.store.AddAgent(req.Name, req.Persona, req.Runtime, req.Model)
+	agent, err := a.store.AddAgent(req.Name, req.Persona, req.SystemPrompt, req.Runtime, req.Model, req.Skills)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

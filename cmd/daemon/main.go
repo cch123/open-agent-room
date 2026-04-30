@@ -415,6 +415,9 @@ func buildRunnerPrompt(request runnerRequest) string {
 	if request.Agent.Persona != "" {
 		fmt.Fprintf(&b, "Persona: %s\n", request.Agent.Persona)
 	}
+	if request.Agent.SystemPrompt != "" {
+		fmt.Fprintf(&b, "System prompt:\n%s\n", request.Agent.SystemPrompt)
+	}
 	if request.Agent.Runtime != "" {
 		fmt.Fprintf(&b, "Runtime: %s\n", request.Agent.Runtime)
 	}

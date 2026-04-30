@@ -56,10 +56,12 @@ const els = {
   agentDialog: document.querySelector("#agent-dialog"),
   agentName: document.querySelector("#agent-name"),
   agentPersona: document.querySelector("#agent-persona"),
+  agentSystemPrompt: document.querySelector("#agent-system-prompt"),
   agentRuntime: document.querySelector("#agent-runtime"),
   agentModel: document.querySelector("#agent-model"),
   agentModelCustom: document.querySelector("#agent-model-custom"),
   agentModelCustomRow: document.querySelector("#agent-model-custom-row"),
+  agentSkills: document.querySelector("#agent-skills"),
   userDialog: document.querySelector("#user-dialog"),
   userName: document.querySelector("#user-name"),
   skillDialog: document.querySelector("#skill-dialog"),
@@ -180,7 +182,8 @@ function renderAgents(agents) {
     button.className = "agent-item";
     const skillCount = (agent.skills || []).length;
     const skillMeta = ` · ${skillCount} skill${skillCount === 1 ? "" : "s"}`;
-    const meta = `${agent.status} · ${runtimeLabel(agent)}${skillMeta} · ${agent.persona}`;
+    const promptMeta = agent.systemPrompt ? " · system prompt" : "";
+    const meta = `${agent.status} · ${runtimeLabel(agent)}${skillMeta}${promptMeta} · ${agent.persona}`;
     button.title = `${agent.name} - ${meta}`;
     button.innerHTML = `<span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span><span><strong>${escapeHTML(agent.name)}</strong><span class="agent-meta">${escapeHTML(meta)}</span></span>`;
     button.addEventListener("click", () => {
@@ -741,15 +744,19 @@ document.querySelector("#agent-create").addEventListener("click", async (event) 
   event.preventDefault();
   const name = els.agentName.value.trim();
   const persona = els.agentPersona.value.trim();
+  const systemPrompt = els.agentSystemPrompt.value.trim();
   const runtime = els.agentRuntime.value;
   const selectedModel = els.agentModel.value;
   const model = selectedModel === "__custom" ? els.agentModelCustom.value.trim() : selectedModel;
+  const skills = parseInitialSkills(els.agentSkills.value);
   if (!name) return;
-  await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona, runtime, model }) });
+  await api("/api/agents", { method: "POST", body: JSON.stringify({ name, persona, systemPrompt, runtime, model, skills }) });
   els.agentName.value = "";
   els.agentPersona.value = "";
+  els.agentSystemPrompt.value = "";
   els.agentRuntime.value = "codex";
   els.agentModelCustom.value = "";
+  els.agentSkills.value = "";
   populateModelOptions("codex");
   els.agentDialog.close();
 });
@@ -907,6 +914,23 @@ function populateModelOptions(runtime) {
     els.agentModel.append(option);
   }
   updateCustomModelVisibility();
+}
+
+function parseInitialSkills(text = "") {
+  return text
+    .split(/^---+$/m)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const lines = block.split("\n");
+      const firstLine = (lines.find((line) => line.trim()) || "Imported skill").trim();
+      const heading = firstLine.match(/^#{1,6}\s+(.+)$/);
+      return {
+        name: cleanMarkdownInline(heading?.[1] || firstLine).slice(0, 80) || "Imported skill",
+        source: "create-agent",
+        content: block,
+      };
+    });
 }
 
 function updateCustomModelVisibility() {
