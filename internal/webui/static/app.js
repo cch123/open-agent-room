@@ -1,4 +1,5 @@
 const themeStorageKey = "open-agent-room-theme";
+const chatFontSizeStorageKey = "open-agent-room-chat-font-size";
 const channelReadStorageKey = "open-agent-room-channel-read";
 
 const state = {
@@ -6,6 +7,7 @@ const state = {
   view: "channel",
   channelId: "chan_general",
   theme: initialTheme(),
+  chatFontSize: initialChatFontSize(),
   debugOpen: false,
   read: initialChannelReadState(),
   selectedEventId: null,
@@ -79,6 +81,7 @@ const els = {
   settingsButton: document.querySelector("#settings-button"),
   settingsDialog: document.querySelector("#settings-dialog"),
   themeChoices: document.querySelectorAll("[data-theme-choice]"),
+  chatFontChoices: document.querySelectorAll("[data-chat-font-size]"),
   newChannel: document.querySelector("#new-channel"),
   manageChannels: document.querySelector("#manage-channels"),
   newAgent: document.querySelector("#new-agent"),
@@ -1001,6 +1004,39 @@ function updateThemeControls() {
   }
 }
 
+function initialChatFontSize() {
+  try {
+    const value = localStorage.getItem(chatFontSizeStorageKey) || "regular";
+    return normalizeChatFontSize(value);
+  } catch {
+    return "regular";
+  }
+}
+
+function normalizeChatFontSize(value) {
+  return ["compact", "regular", "large", "xl"].includes(value) ? value : "regular";
+}
+
+function applyChatFontSize(size) {
+  const normalized = normalizeChatFontSize(size);
+  state.chatFontSize = normalized;
+  document.documentElement.dataset.chatFontSize = normalized;
+  try {
+    localStorage.setItem(chatFontSizeStorageKey, normalized);
+  } catch {
+    // Chat font persistence is optional.
+  }
+  updateChatFontSizeControls();
+}
+
+function updateChatFontSizeControls() {
+  for (const choice of els.chatFontChoices) {
+    const active = choice.dataset.chatFontSize === state.chatFontSize;
+    choice.classList.toggle("active", active);
+    choice.setAttribute("aria-pressed", String(active));
+  }
+}
+
 function initialChannelReadState() {
   try {
     const raw = localStorage.getItem(channelReadStorageKey);
@@ -1295,6 +1331,11 @@ els.settingsButton.addEventListener("click", () => {
 for (const choice of els.themeChoices) {
   choice.addEventListener("click", () => {
     applyTheme(choice.dataset.themeChoice);
+  });
+}
+for (const choice of els.chatFontChoices) {
+  choice.addEventListener("click", () => {
+    applyChatFontSize(choice.dataset.chatFontSize);
   });
 }
 els.debugToggle.addEventListener("click", () => {
@@ -2920,4 +2961,5 @@ load().catch((error) => {
 });
 
 applyTheme(state.theme);
+applyChatFontSize(state.chatFontSize);
 populateModelOptions("codex");

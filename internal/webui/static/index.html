@@ -8,9 +8,12 @@
       (() => {
         try {
           const theme = localStorage.getItem("open-agent-room-theme") || "light";
+          const chatFontSize = localStorage.getItem("open-agent-room-chat-font-size") || "regular";
           document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+          document.documentElement.dataset.chatFontSize = ["compact", "regular", "large", "xl"].includes(chatFontSize) ? chatFontSize : "regular";
         } catch {
           document.documentElement.dataset.theme = "light";
+          document.documentElement.dataset.chatFontSize = "regular";
         }
       })();
     </script>
@@ -267,6 +270,30 @@
             <button type="button" data-theme-choice="dark" aria-pressed="false">
               <span>Bk</span>
               <strong>Cyberpunk</strong>
+            </button>
+          </div>
+        </section>
+        <section class="settings-section" aria-label="Chat text size">
+          <div>
+            <strong>Chat text</strong>
+            <small>Adjust the message reading size in channels and task chats.</small>
+          </div>
+          <div class="chat-font-choice-row" role="group" aria-label="Chat text size">
+            <button type="button" data-chat-font-size="compact" aria-pressed="false">
+              <span>Aa</span>
+              <strong>Small</strong>
+            </button>
+            <button type="button" data-chat-font-size="regular" aria-pressed="false">
+              <span>Aa</span>
+              <strong>Regular</strong>
+            </button>
+            <button type="button" data-chat-font-size="large" aria-pressed="false">
+              <span>Aa</span>
+              <strong>Large</strong>
+            </button>
+            <button type="button" data-chat-font-size="xl" aria-pressed="false">
+              <span>Aa</span>
+              <strong>XL</strong>
             </button>
           </div>
         </section>

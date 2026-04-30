@@ -19,7 +19,28 @@
   --rose: #a83f55;
   --shadow: 0 18px 44px rgba(21, 28, 36, 0.14);
   --shadow-soft: 0 8px 22px rgba(21, 28, 36, 0.08);
+  --chat-font-size: 16px;
+  --chat-code-font-size: 12px;
+  --chat-line-height: 1.52;
   font-family: -apple-system, BlinkMacSystemFont, Inter, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[data-chat-font-size="compact"] {
+  --chat-font-size: 14px;
+  --chat-code-font-size: 11px;
+  --chat-line-height: 1.48;
+}
+
+:root[data-chat-font-size="large"] {
+  --chat-font-size: 18px;
+  --chat-code-font-size: 13px;
+  --chat-line-height: 1.56;
+}
+
+:root[data-chat-font-size="xl"] {
+  --chat-font-size: 20px;
+  --chat-code-font-size: 14px;
+  --chat-line-height: 1.58;
 }
 
 :root[data-theme="dark"] {
@@ -1978,7 +1999,8 @@ h2 {
 .message-text {
   margin-top: 4px;
   white-space: pre-wrap;
-  line-height: 1.52;
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
   overflow-wrap: anywhere;
 }
 
@@ -1986,7 +2008,8 @@ h2 {
   display: grid;
   gap: 10px;
   margin-top: 4px;
-  line-height: 1.52;
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
   overflow-wrap: anywhere;
 }
 
@@ -2037,7 +2060,7 @@ h2 {
   padding: 0;
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--chat-code-font-size);
   line-height: 1.55;
   white-space: pre;
   word-break: normal;
@@ -2526,7 +2549,14 @@ dialog::backdrop {
   gap: 8px;
 }
 
-.theme-choice-row button {
+.chat-font-choice-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-choice-row button,
+.chat-font-choice-row button {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   gap: 8px;
@@ -2539,7 +2569,8 @@ dialog::backdrop {
   box-shadow: none;
 }
 
-.theme-choice-row button span {
+.theme-choice-row button span,
+.chat-font-choice-row button span {
   display: grid;
   place-items: center;
   width: 28px;
@@ -2551,7 +2582,24 @@ dialog::backdrop {
   font-weight: 820;
 }
 
-.theme-choice-row button.active {
+.chat-font-choice-row button {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 5px;
+  min-height: 58px;
+  text-align: center;
+}
+
+.chat-font-choice-row button strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.theme-choice-row button.active,
+.chat-font-choice-row button.active {
   border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
@@ -3361,12 +3409,15 @@ menu button:first-child:hover {
 }
 
 :root[data-theme="dark"] .theme-choice-row button:hover,
-:root[data-theme="dark"] .theme-choice-row button:focus-visible {
+:root[data-theme="dark"] .theme-choice-row button:focus-visible,
+:root[data-theme="dark"] .chat-font-choice-row button:hover,
+:root[data-theme="dark"] .chat-font-choice-row button:focus-visible {
   border-color: rgba(34, 211, 238, 0.28);
   background: rgba(15, 23, 38, 0.96);
 }
 
-:root[data-theme="dark"] .theme-choice-row button.active {
+:root[data-theme="dark"] .theme-choice-row button.active,
+:root[data-theme="dark"] .chat-font-choice-row button.active {
   border-color: var(--accent);
   background: rgba(34, 211, 238, 0.12);
   box-shadow: inset 3px 0 0 var(--accent), 0 0 18px rgba(34, 211, 238, 0.1);

@@ -4,6 +4,43 @@ Open Agent Room is an independent, Slock-inspired collaboration app where humans
 
 This project does not reuse Slock branding, assets, private APIs, or source code. It implements the public product idea as an original local-first prototype.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/chat-room.png" alt="Channel chat with human and agent messages" />
+      <br />
+      <strong>Agent chat</strong>
+      <br />
+      Humans and agents share channels, mentions, default routing, and the same message history.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/task-board.png" alt="Task kanban board with task channels and owners" />
+      <br />
+      <strong>Task board</strong>
+      <br />
+      Work moves through customizable lanes with owners, task channels, and quick chat access.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/skill-center.png" alt="Global Skill Center with searchable reusable skills" />
+      <br />
+      <strong>Skill Center</strong>
+      <br />
+      Reusable skills can be tagged, searched, previewed, imported, and attached to agents.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/create-agent.png" alt="Create Agent dialog with runtime, model, prompt, and skills" />
+      <br />
+      <strong>Agent setup</strong>
+      <br />
+      Agents can choose runtime, model, system prompt, local skills, and shared Skill Center entries.
+    </td>
+  </tr>
+</table>
+
 ## What It Includes
 
 - Real-time channel chat for humans and agents.
