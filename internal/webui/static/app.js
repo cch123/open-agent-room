@@ -668,8 +668,7 @@ function renderEvents(events) {
   els.eventDetail.textContent = selected ? JSON.stringify(selected, null, 2) : "{}";
 }
 
-els.composer.addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function sendComposerMessage() {
   const text = els.input.value.trim();
   if (!text) return;
   els.input.value = "";
@@ -682,6 +681,11 @@ els.composer.addEventListener("submit", async (event) => {
   } catch (error) {
     alert(error.message);
   }
+}
+
+els.composer.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await sendComposerMessage();
 });
 
 els.input.addEventListener("input", updateMentionSuggestions);
@@ -691,7 +695,20 @@ els.input.addEventListener("keyup", (event) => {
   updateMentionSuggestions();
 });
 els.input.addEventListener("keydown", (event) => {
-  if (els.mentionSuggestions.hidden) return;
+  if (event.key === "Enter" && !event.isComposing && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    insertTextAtCursor("\n");
+    hideMentionSuggestions();
+    return;
+  }
+
+  if (els.mentionSuggestions.hidden) {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      void sendComposerMessage();
+    }
+    return;
+  }
   if (event.key === "Escape") {
     event.preventDefault();
     hideMentionSuggestions();
@@ -935,6 +952,17 @@ async function deleteUser(user) {
 function insertMention(name) {
   const suffix = els.input.value && !els.input.value.endsWith(" ") ? " " : "";
   els.input.value += `${suffix}@${name.replace(/\s+/g, "-")} `;
+  els.input.focus();
+}
+
+function insertTextAtCursor(text) {
+  const start = els.input.selectionStart || 0;
+  const end = els.input.selectionEnd || start;
+  const before = els.input.value.slice(0, start);
+  const after = els.input.value.slice(end);
+  els.input.value = `${before}${text}${after}`;
+  const cursor = start + text.length;
+  els.input.setSelectionRange(cursor, cursor);
   els.input.focus();
 }
 
