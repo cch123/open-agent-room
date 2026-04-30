@@ -723,6 +723,7 @@ h2 {
 }
 
 .markdown-card {
+  position: relative;
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) auto;
   gap: 12px;
@@ -735,12 +736,20 @@ h2 {
   background: #fbfcfd;
   color: var(--text);
   text-align: left;
+  box-shadow: 0 1px 0 rgba(21, 28, 36, 0.03);
 }
 
 .markdown-card:hover,
 .markdown-card:focus-visible {
-  border-color: rgba(49, 95, 122, 0.42);
-  box-shadow: var(--shadow-soft);
+  background: #fff;
+  color: var(--text);
+  border-color: rgba(49, 95, 122, 0.34);
+  box-shadow: 0 12px 28px rgba(21, 28, 36, 0.1);
+  transform: translateY(-1px);
+}
+
+.markdown-card:active {
+  transform: translateY(0);
 }
 
 .markdown-card-icon {
@@ -754,6 +763,13 @@ h2 {
   font-size: 11px;
   font-weight: 800;
   border: 1px solid rgba(49, 95, 122, 0.16);
+}
+
+.markdown-card:hover .markdown-card-icon,
+.markdown-card:focus-visible .markdown-card-icon {
+  background: #f2f7fa;
+  border-color: rgba(49, 95, 122, 0.32);
+  color: var(--accent-strong);
 }
 
 .markdown-card-copy {
@@ -774,10 +790,22 @@ h2 {
   font-size: 12px;
 }
 
+.markdown-card:hover .markdown-card-copy small,
+.markdown-card:focus-visible .markdown-card-copy small,
+.markdown-card:hover .markdown-card-copy span,
+.markdown-card:focus-visible .markdown-card-copy span {
+  color: var(--muted);
+}
+
 .markdown-card-action {
   color: var(--accent);
   font-size: 12px;
   font-weight: 750;
+}
+
+.markdown-card:hover .markdown-card-action,
+.markdown-card:focus-visible .markdown-card-action {
+  color: var(--accent-strong);
 }
 
 .composer {
