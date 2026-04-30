@@ -166,13 +166,14 @@ func TestRouteTargetsForReplyPayloadPrefersExplicitMentions(t *testing.T) {
 		{ID: "agent_ada", Name: "Ada"},
 		{ID: "agent_lin", Name: "Lin"},
 		{ID: "agent_claudelocal", Name: "ClaudeLocal"},
+		{ID: "agent_architect", Name: "架构师"},
 	}
 
 	got := routeTargetsForReplyPayload(protocol.AgentReplyPayload{
-		Text:       "@Ada can you review this?",
+		Text:       "@架构师 can you review this?",
 		PeerAgents: []protocol.Agent{{ID: "agent_claudelocal", Name: "ClaudeLocal"}},
 	}, "agent_lin", agents)
-	if !reflect.DeepEqual(got, []string{"agent_ada"}) {
+	if !reflect.DeepEqual(got, []string{"agent_architect"}) {
 		t.Fatalf("explicit targets = %v", got)
 	}
 }

@@ -238,7 +238,7 @@ func DecodePayload[T any](env Envelope) (T, error) {
 	return out, err
 }
 
-var mentionRE = regexp.MustCompile(`(?i)@([a-z0-9][a-z0-9_-]{0,40})`)
+var mentionRE = regexp.MustCompile(`(?i)@([\p{L}\p{N}][\p{L}\p{N}_-]{0,80})`)
 
 func ExtractMentions(text string, agents []Agent) []string {
 	matches := mentionRE.FindAllStringSubmatch(strings.ToLower(text), -1)
@@ -254,8 +254,8 @@ func ExtractMentions(text string, agents []Agent) []string {
 	var ids []string
 	seen := make(map[string]bool)
 	for _, agent := range agents {
-		name := strings.ToLower(strings.ReplaceAll(agent.Name, " ", "-"))
-		id := strings.ToLower(agent.ID)
+		name := mentionSlug(agent.Name)
+		id := mentionSlug(agent.ID)
 		shortID := strings.TrimPrefix(id, "agent_")
 		if wanted[name] || wanted[id] || wanted[shortID] {
 			if !seen[agent.ID] {
@@ -265,6 +265,10 @@ func ExtractMentions(text string, agents []Agent) []string {
 		}
 	}
 	return ids
+}
+
+func mentionSlug(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(value), "-"))
 }
 
 func TrimEvents(events []Envelope, limit int) []Envelope {

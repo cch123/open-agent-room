@@ -6,13 +6,14 @@ func TestExtractMentions(t *testing.T) {
 	agents := []Agent{
 		{ID: "agent_ada", Name: "Ada"},
 		{ID: "agent_lin", Name: "Lin Huang"},
+		{ID: "agent_architect", Name: "架构师"},
 	}
 
-	got := ExtractMentions("@Ada please pair with @lin-huang", agents)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 mentions, got %d: %#v", len(got), got)
+	got := ExtractMentions("@Ada please pair with @lin-huang and @架构师，确认一下", agents)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 mentions, got %d: %#v", len(got), got)
 	}
-	if got[0] != "agent_ada" || got[1] != "agent_lin" {
+	if got[0] != "agent_ada" || got[1] != "agent_lin" || got[2] != "agent_architect" {
 		t.Fatalf("unexpected mention order: %#v", got)
 	}
 }
