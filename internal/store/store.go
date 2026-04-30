@@ -44,6 +44,7 @@ func (s *Store) load() error {
 	}
 	s.ensureUserDefaultsLocked()
 	s.ensureAgentRuntimeDefaultsLocked()
+	s.ensureSkillLibraryLocked()
 	s.ensureChannelDefaultsLocked()
 	return nil
 }
@@ -51,7 +52,9 @@ func (s *Store) load() error {
 func (s *Store) Snapshot() protocol.State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return cloneState(s.state)
+	snapshot := cloneState(s.state)
+	hydrateAgentSkills(&snapshot)
+	return snapshot
 }
 
 func (s *Store) ServerID() string {
@@ -225,7 +228,7 @@ func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string,
 	if name == "" {
 		return protocol.Agent{}, errors.New("agent name is required")
 	}
-	importedSkills, err := normalizeAgentSkills(skills)
+	skillIDs, err := addSkillsLocked(&s.state, skills)
 	if err != nil {
 		return protocol.Agent{}, err
 	}
@@ -238,7 +241,7 @@ func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string,
 		Model:        strings.TrimSpace(model),
 		Status:       "waiting",
 		Capabilities: []string{"reply", "remember", "tasks"},
-		Skills:       importedSkills,
+		SkillIDs:     skillIDs,
 		Color:        agentColor(len(s.state.Agents)),
 		LastSeen:     protocol.Now(),
 	}
@@ -259,7 +262,7 @@ func (s *Store) AddAgent(name, persona, systemPrompt, runtimeName, model string,
 		}
 	}
 	s.touchLocked()
-	return agent, s.saveLocked()
+	return hydrateAgentSkill(agent, s.state.Skills), s.saveLocked()
 }
 
 func (s *Store) DeleteAgent(id string) (protocol.Agent, error) {
@@ -314,6 +317,39 @@ func (s *Store) UpdateChannelDefaultAgent(channelID, agentID string) (protocol.C
 	return protocol.Channel{}, errors.New("channel not found")
 }
 
+func (s *Store) AddSkill(name, source, content string) (protocol.AgentSkill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	skill, err := addSkillLocked(&s.state, name, source, content)
+	if err != nil {
+		return protocol.AgentSkill{}, err
+	}
+	s.touchLocked()
+	return skill, s.saveLocked()
+}
+
+func (s *Store) DeleteSkill(skillID string) (protocol.AgentSkill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	skillID = strings.ToLower(strings.TrimSpace(skillID))
+	if skillID == "" {
+		return protocol.AgentSkill{}, errors.New("skill id is required")
+	}
+	for i, skill := range s.state.Skills {
+		if !skillMatches(skill, skillID) {
+			continue
+		}
+		s.state.Skills = append(s.state.Skills[:i], s.state.Skills[i+1:]...)
+		for j := range s.state.Agents {
+			s.state.Agents[j].SkillIDs = removeValue(s.state.Agents[j].SkillIDs, skill.ID)
+			s.state.Agents[j].Skills = removeSkillValue(s.state.Agents[j].Skills, skill.ID)
+		}
+		s.touchLocked()
+		return skill, s.saveLocked()
+	}
+	return protocol.AgentSkill{}, errors.New("skill not found")
+}
+
 func (s *Store) AddAgentSkill(agentID, name, source, content string) (protocol.AgentSkill, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -322,11 +358,36 @@ func (s *Store) AddAgentSkill(agentID, name, source, content string) (protocol.A
 		if !agentMatches(s.state.Agents[i], agentID) {
 			continue
 		}
-		skill, err := newAgentSkill(name, source, content, s.state.Agents[i].Skills)
+		skill, err := addSkillLocked(&s.state, name, source, content)
 		if err != nil {
 			return protocol.AgentSkill{}, err
 		}
-		s.state.Agents[i].Skills = append(s.state.Agents[i].Skills, skill)
+		s.state.Agents[i].SkillIDs = appendUnique(s.state.Agents[i].SkillIDs, skill.ID)
+		s.state.Agents[i].Skills = nil
+		s.touchLocked()
+		return skill, s.saveLocked()
+	}
+	return protocol.AgentSkill{}, errors.New("agent not found")
+}
+
+func (s *Store) AttachAgentSkill(agentID, skillID string) (protocol.AgentSkill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	agentID = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(agentID), "@"))
+	skillID = strings.ToLower(strings.TrimSpace(skillID))
+	if agentID == "" || skillID == "" {
+		return protocol.AgentSkill{}, errors.New("agent id and skill id are required")
+	}
+	skill, ok := findSkill(s.state.Skills, skillID)
+	if !ok {
+		return protocol.AgentSkill{}, errors.New("skill not found")
+	}
+	for i := range s.state.Agents {
+		if !agentMatches(s.state.Agents[i], agentID) {
+			continue
+		}
+		s.state.Agents[i].SkillIDs = appendUnique(s.state.Agents[i].SkillIDs, skill.ID)
+		s.state.Agents[i].Skills = nil
 		s.touchLocked()
 		return skill, s.saveLocked()
 	}
@@ -345,11 +406,12 @@ func (s *Store) DeleteAgentSkill(agentID, skillID string) (protocol.AgentSkill, 
 		if !agentMatches(s.state.Agents[i], agentID) {
 			continue
 		}
-		for j, skill := range s.state.Agents[i].Skills {
-			if !skillMatches(skill, skillID) {
-				continue
+		if skill, ok := findSkill(s.state.Skills, skillID); ok {
+			if !containsValue(s.state.Agents[i].SkillIDs, skill.ID) && !agentHasLegacySkill(s.state.Agents[i], skill.ID) {
+				return protocol.AgentSkill{}, errors.New("skill not attached to agent")
 			}
-			s.state.Agents[i].Skills = append(s.state.Agents[i].Skills[:j], s.state.Agents[i].Skills[j+1:]...)
+			s.state.Agents[i].SkillIDs = removeValue(s.state.Agents[i].SkillIDs, skill.ID)
+			s.state.Agents[i].Skills = removeSkillValue(s.state.Agents[i].Skills, skill.ID)
 			s.touchLocked()
 			return skill, s.saveLocked()
 		}
@@ -440,7 +502,7 @@ func (s *Store) FindAgent(id string) (protocol.Agent, bool) {
 	id = strings.ToLower(strings.TrimPrefix(id, "@"))
 	for _, agent := range s.state.Agents {
 		if agentMatches(agent, id) {
-			return agent, true
+			return hydrateAgentSkill(agent, s.state.Skills), true
 		}
 	}
 	return protocol.Agent{}, false
@@ -521,6 +583,26 @@ func cloneState(in protocol.State) protocol.State {
 	return out
 }
 
+func hydrateAgentSkills(state *protocol.State) {
+	for i := range state.Agents {
+		state.Agents[i] = hydrateAgentSkill(state.Agents[i], state.Skills)
+	}
+}
+
+func hydrateAgentSkill(agent protocol.Agent, skills []protocol.AgentSkill) protocol.Agent {
+	var out []protocol.AgentSkill
+	for _, skillID := range agent.SkillIDs {
+		if skill, ok := findSkill(skills, skillID); ok {
+			out = append(out, skill)
+		}
+	}
+	if len(out) == 0 && len(agent.SkillIDs) == 0 && len(agent.Skills) > 0 {
+		return agent
+	}
+	agent.Skills = out
+	return agent
+}
+
 func appendUnique(values []string, next string) []string {
 	for _, v := range values {
 		if v == next {
@@ -530,10 +612,29 @@ func appendUnique(values []string, next string) []string {
 	return append(values, next)
 }
 
+func containsValue(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func removeValue(values []string, target string) []string {
 	out := values[:0]
 	for _, value := range values {
 		if value != target {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func removeSkillValue(values []protocol.AgentSkill, target string) []protocol.AgentSkill {
+	out := values[:0]
+	for _, value := range values {
+		if !skillMatches(value, target) {
 			out = append(out, value)
 		}
 	}
@@ -552,16 +653,44 @@ func skillMatches(skill protocol.AgentSkill, id string) bool {
 	return strings.ToLower(skill.ID) == id || strings.ToLower(skill.Name) == id || strings.TrimPrefix(strings.ToLower(skill.ID), "skill_") == id
 }
 
-func normalizeAgentSkills(skills []protocol.AgentSkill) ([]protocol.AgentSkill, error) {
-	var out []protocol.AgentSkill
+func findSkill(skills []protocol.AgentSkill, id string) (protocol.AgentSkill, bool) {
+	id = strings.ToLower(strings.TrimSpace(id))
 	for _, skill := range skills {
-		normalized, err := newAgentSkill(skill.Name, skill.Source, skill.Content, out)
+		if skillMatches(skill, id) {
+			return skill, true
+		}
+	}
+	return protocol.AgentSkill{}, false
+}
+
+func agentHasLegacySkill(agent protocol.Agent, skillID string) bool {
+	for _, skill := range agent.Skills {
+		if skillMatches(skill, skillID) {
+			return true
+		}
+	}
+	return false
+}
+
+func addSkillsLocked(state *protocol.State, skills []protocol.AgentSkill) ([]string, error) {
+	var ids []string
+	for _, skill := range skills {
+		normalized, err := addSkillLocked(state, skill.Name, skill.Source, skill.Content)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, normalized)
+		ids = appendUnique(ids, normalized.ID)
 	}
-	return out, nil
+	return ids, nil
+}
+
+func addSkillLocked(state *protocol.State, name, source, content string) (protocol.AgentSkill, error) {
+	skill, err := newAgentSkill(name, source, content, state.Skills)
+	if err != nil {
+		return protocol.AgentSkill{}, err
+	}
+	state.Skills = append(state.Skills, skill)
+	return skill, nil
 }
 
 func newAgentSkill(name, source, content string, existing []protocol.AgentSkill) (protocol.AgentSkill, error) {
@@ -650,6 +779,41 @@ func (s *Store) ensureAgentRuntimeDefaultsLocked() {
 	for i := range s.state.Agents {
 		s.state.Agents[i].Runtime = normalizeRuntime(s.state.Agents[i].Runtime)
 		s.state.Agents[i].Model = strings.TrimSpace(s.state.Agents[i].Model)
+	}
+}
+
+func (s *Store) ensureSkillLibraryLocked() {
+	for i := range s.state.Skills {
+		if strings.TrimSpace(s.state.Skills[i].ID) == "" {
+			s.state.Skills[i].ID = protocol.NewID("skill")
+		}
+		if strings.TrimSpace(s.state.Skills[i].CreatedAt) == "" {
+			s.state.Skills[i].CreatedAt = protocol.Now()
+		}
+	}
+	for i := range s.state.Agents {
+		var skillIDs []string
+		for _, skillID := range s.state.Agents[i].SkillIDs {
+			if skill, ok := findSkill(s.state.Skills, skillID); ok {
+				skillIDs = appendUnique(skillIDs, skill.ID)
+			}
+		}
+		for _, skill := range s.state.Agents[i].Skills {
+			if strings.TrimSpace(skill.ID) != "" {
+				if existing, ok := findSkill(s.state.Skills, skill.ID); ok {
+					skillIDs = appendUnique(skillIDs, existing.ID)
+					continue
+				}
+			}
+			normalized, err := newAgentSkill(skill.Name, skill.Source, skill.Content, s.state.Skills)
+			if err != nil {
+				continue
+			}
+			s.state.Skills = append(s.state.Skills, normalized)
+			skillIDs = appendUnique(skillIDs, normalized.ID)
+		}
+		s.state.Agents[i].SkillIDs = skillIDs
+		s.state.Agents[i].Skills = nil
 	}
 }
 

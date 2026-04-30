@@ -102,6 +102,8 @@ func main() {
 	mux.HandleFunc("/api/channels/", a.handleChannelSubroutes)
 	mux.HandleFunc("/api/users", a.handleUsers)
 	mux.HandleFunc("/api/users/", a.handleUserSubroutes)
+	mux.HandleFunc("/api/skills", a.handleSkills)
+	mux.HandleFunc("/api/skills/", a.handleSkillSubroutes)
 	mux.HandleFunc("/api/agents", a.handleAgents)
 	mux.HandleFunc("/api/agents/", a.handleAgentSubroutes)
 	mux.HandleFunc("/daemon", a.handleDaemon)
@@ -323,6 +325,52 @@ func (a *app) handleUserSubroutes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
+func (a *app) handleSkills(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	var req struct {
+		Name    string `json:"name"`
+		Source  string `json:"source"`
+		Content string `json:"content"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	skill, err := a.store.AddSkill(req.Name, req.Source, req.Content)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "skill.created", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, skill, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusCreated, skill)
+}
+
+func (a *app) handleSkillSubroutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/skills/"), "/")
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w)
+		return
+	}
+	if path == "" || strings.Contains(path, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	skill, err := a.store.DeleteSkill(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	env := protocol.NewEnvelope(a.store.ServerID(), "skill.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, skill, "")
+	_ = a.store.AddEnvelope(env)
+	a.broadcast()
+	writeJSON(w, http.StatusOK, skill)
+}
+
 func (a *app) handleAgents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
@@ -361,7 +409,7 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
-			env := protocol.NewEnvelope(a.store.ServerID(), "agent.skill.deleted", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]any{"agentId": agentID, "skill": skill}, "")
+			env := protocol.NewEnvelope(a.store.ServerID(), "agent.skill.detached", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]any{"agentId": agentID, "skill": skill}, "")
 			_ = a.store.AddEnvelope(env)
 			a.broadcast()
 			writeJSON(w, http.StatusOK, skill)
@@ -389,6 +437,7 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 	}
 	if agentID, ok := parseAgentSkillPostPath(path); ok {
 		var req struct {
+			SkillID string `json:"skillId"`
 			Name    string `json:"name"`
 			Source  string `json:"source"`
 			Content string `json:"content"`
@@ -397,12 +446,22 @@ func (a *app) handleAgentSubroutes(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		skill, err := a.store.AddAgentSkill(agentID, req.Name, req.Source, req.Content)
+		var (
+			skill protocol.AgentSkill
+			err   error
+		)
+		eventType := "agent.skill.attached"
+		if strings.TrimSpace(req.SkillID) != "" {
+			skill, err = a.store.AttachAgentSkill(agentID, req.SkillID)
+		} else {
+			skill, err = a.store.AddAgentSkill(agentID, req.Name, req.Source, req.Content)
+			eventType = "agent.skill.created_and_attached"
+		}
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		env := protocol.NewEnvelope(a.store.ServerID(), "agent.skill.imported", protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]any{"agentId": agentID, "skill": skill}, "")
+		env := protocol.NewEnvelope(a.store.ServerID(), eventType, protocol.Actor{Kind: "human", ID: "usr_you", Name: "You"}, protocol.Scope{Kind: "server", ID: a.store.ServerID()}, map[string]any{"agentId": agentID, "skill": skill}, "")
 		_ = a.store.AddEnvelope(env)
 		a.broadcast()
 		writeJSON(w, http.StatusCreated, skill)

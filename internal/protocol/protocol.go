@@ -83,6 +83,7 @@ type Agent struct {
 	DaemonID     string       `json:"daemonId,omitempty"`
 	Capabilities []string     `json:"capabilities"`
 	Memory       []MemoryItem `json:"memory"`
+	SkillIDs     []string     `json:"skillIds,omitempty"`
 	Skills       []AgentSkill `json:"skills,omitempty"`
 	Color        string       `json:"color"`
 	LastSeen     string       `json:"lastSeen,omitempty"`
@@ -111,14 +112,15 @@ type Message struct {
 }
 
 type State struct {
-	Meta          Meta       `json:"meta"`
-	CurrentUserID string     `json:"currentUserId"`
-	Users         []User     `json:"users"`
-	Channels      []Channel  `json:"channels"`
-	Agents        []Agent    `json:"agents"`
-	Daemons       []Daemon   `json:"daemons"`
-	Messages      []Message  `json:"messages"`
-	Events        []Envelope `json:"events"`
+	Meta          Meta         `json:"meta"`
+	CurrentUserID string       `json:"currentUserId"`
+	Users         []User       `json:"users"`
+	Channels      []Channel    `json:"channels"`
+	Skills        []AgentSkill `json:"skills,omitempty"`
+	Agents        []Agent      `json:"agents"`
+	Daemons       []Daemon     `json:"daemons"`
+	Messages      []Message    `json:"messages"`
+	Events        []Envelope   `json:"events"`
 }
 
 type DaemonHelloPayload struct {

@@ -10,7 +10,7 @@ const state = {
     selected: 0,
   },
   skillAgentId: "",
-  skillFilterAgentId: "",
+  skillDialogMode: "agent",
   skillSearch: "",
 };
 
@@ -57,7 +57,6 @@ const els = {
   skillManager: document.querySelector("#skill-manager"),
   skillManagerCount: document.querySelector("#skill-manager-count"),
   skillManagerAdd: document.querySelector("#skill-manager-add"),
-  skillAgentFilter: document.querySelector("#skill-agent-filter"),
   skillSearch: document.querySelector("#skill-search"),
   skillManagerList: document.querySelector("#skill-manager-list"),
   composer: document.querySelector("#composer"),
@@ -83,9 +82,12 @@ const els = {
   userDialog: document.querySelector("#user-dialog"),
   userName: document.querySelector("#user-name"),
   skillDialog: document.querySelector("#skill-dialog"),
+  skillDialogTitle: document.querySelector("#skill-dialog-title"),
   skillAgentName: document.querySelector("#skill-agent-name"),
   skillList: document.querySelector("#skill-list"),
-  skillTargetAgent: document.querySelector("#skill-target-agent"),
+  skillAttachRow: document.querySelector("#skill-attach-row"),
+  skillAttachSelect: document.querySelector("#skill-attach-select"),
+  skillAttach: document.querySelector("#skill-attach"),
   skillName: document.querySelector("#skill-name"),
   skillSource: document.querySelector("#skill-source"),
   skillFile: document.querySelector("#skill-file"),
@@ -140,7 +142,7 @@ function render() {
   renderUsers(users || []);
   renderAgents(agents);
   if (isSkillView) {
-    renderSkillManager(agents);
+    renderSkillManager(state.snapshot.skills || [], agents);
   } else {
     renderMessages();
     renderMentions(availableMentionAgents(current, agents));
@@ -816,17 +818,11 @@ els.openSkills.addEventListener("click", () => {
   render();
 });
 els.skillManagerAdd.addEventListener("click", () => {
-  const agents = state.snapshot?.agents || [];
-  const target = state.skillFilterAgentId || agents[0]?.id || "";
-  openSkillDialog(agents.find((agent) => agent.id === target) || agents[0]);
-});
-els.skillAgentFilter.addEventListener("change", () => {
-  state.skillFilterAgentId = els.skillAgentFilter.value;
-  renderSkillManager(state.snapshot?.agents || []);
+  openGlobalSkillDialog();
 });
 els.skillSearch.addEventListener("input", () => {
   state.skillSearch = els.skillSearch.value.trim();
-  renderSkillManager(state.snapshot?.agents || []);
+  renderSkillManager(state.snapshot?.skills || [], state.snapshot?.agents || []);
 });
 
 els.agentRuntime.addEventListener("change", () => populateModelOptions(els.agentRuntime.value));
@@ -870,22 +866,35 @@ els.skillFile.addEventListener("change", async () => {
   els.skillName.value = els.skillName.value.trim() || file.name.replace(/\.[^.]+$/, "");
   els.skillContent.value = await file.text();
 });
-els.skillTargetAgent.addEventListener("change", () => {
-  state.skillAgentId = els.skillTargetAgent.value;
+els.skillAttach.addEventListener("click", async () => {
+  const agentId = state.skillAgentId;
+  const skillId = els.skillAttachSelect.value;
+  if (!agentId || !skillId) return;
+  await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
+    method: "POST",
+    body: JSON.stringify({ skillId }),
+  });
+  state.snapshot = await api("/api/state");
+  render();
   renderSkillDialog();
 });
 
 document.querySelector("#skill-import").addEventListener("click", async (event) => {
   event.preventDefault();
-  const agentId = state.skillAgentId;
   const name = els.skillName.value.trim();
   const source = els.skillSource.value.trim();
   const content = els.skillContent.value.trim();
-  if (!agentId || !name || !content) return;
-  await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
-    method: "POST",
-    body: JSON.stringify({ name, source, content }),
-  });
+  if (!name || !content) return;
+  if (state.skillDialogMode === "global") {
+    await api("/api/skills", { method: "POST", body: JSON.stringify({ name, source, content }) });
+  } else {
+    const agentId = state.skillAgentId;
+    if (!agentId) return;
+    await api(`/api/agents/${encodeURIComponent(agentId)}/skills`, {
+      method: "POST",
+      body: JSON.stringify({ name, source, content }),
+    });
+  }
   state.snapshot = await api("/api/state");
   render();
   els.skillName.value = "";
@@ -931,9 +940,10 @@ async function deleteAgent(agent) {
 
 function openSkillDialog(agent) {
   if (!agent) {
-    alert("Create an agent before importing skills.");
+    alert("Create an agent before attaching skills.");
     return;
   }
+  state.skillDialogMode = "agent";
   state.skillAgentId = agent.id;
   els.skillName.value = "";
   els.skillSource.value = "";
@@ -943,65 +953,54 @@ function openSkillDialog(agent) {
   els.skillDialog.showModal();
 }
 
-function renderSkillManager(agents) {
-  const rows = allAgentSkills(agents);
-  const filterOptions = [{ id: "", name: "All agents" }, ...agents];
-  const previousFilter = state.skillFilterAgentId;
-  els.skillAgentFilter.innerHTML = "";
-  for (const agent of filterOptions) {
-    const option = document.createElement("option");
-    option.value = agent.id;
-    option.textContent = agent.id ? `${agent.name} · ${runtimeLabel(agent)}` : agent.name;
-    els.skillAgentFilter.append(option);
-  }
-  if (previousFilter && agents.some((agent) => agent.id === previousFilter)) {
-    els.skillAgentFilter.value = previousFilter;
-  } else {
-    state.skillFilterAgentId = "";
-    els.skillAgentFilter.value = "";
-  }
-  if (els.skillSearch.value !== state.skillSearch) {
-    els.skillSearch.value = state.skillSearch;
-  }
+function openGlobalSkillDialog() {
+  state.skillDialogMode = "global";
+  state.skillAgentId = "";
+  els.skillName.value = "";
+  els.skillSource.value = "";
+  els.skillFile.value = "";
+  els.skillContent.value = "";
+  renderSkillDialog();
+  els.skillDialog.showModal();
+}
 
+function renderSkillManager(skills, agents) {
+  if (els.skillSearch.value !== state.skillSearch) els.skillSearch.value = state.skillSearch;
   const query = state.skillSearch.toLowerCase();
-  const visible = rows.filter(({ agent, skill }) => {
-    if (state.skillFilterAgentId && agent.id !== state.skillFilterAgentId) return false;
+  const visible = skills.filter((skill) => {
     if (!query) return true;
-    return [skill.name, skill.source, skill.content, agent.name, runtimeLabel(agent)]
+    return [skill.name, skill.source, skill.content]
       .join("\n")
       .toLowerCase()
       .includes(query);
   });
 
-  els.skillManagerCount.textContent = `${rows.length} skill${rows.length === 1 ? "" : "s"}`;
+  els.skillManagerCount.textContent = `${skills.length} skill${skills.length === 1 ? "" : "s"}`;
   els.skillManagerList.innerHTML = "";
-  els.skillManagerAdd.disabled = agents.length === 0;
-  if (rows.length === 0) {
+  els.skillManagerAdd.disabled = false;
+  if (skills.length === 0) {
     const empty = document.createElement("div");
     empty.className = "skill-manager-empty";
-    empty.innerHTML = "<strong>No imported skills yet.</strong><span>Import a skill and bind it to an agent runtime context.</span>";
+    empty.innerHTML = "<strong>No skills in the library yet.</strong><span>Create reusable skills here, then attach them from an agent.</span>";
     els.skillManagerList.append(empty);
     return;
   }
   if (visible.length === 0) {
     const empty = document.createElement("div");
     empty.className = "skill-manager-empty";
-    empty.innerHTML = "<strong>No matching skills.</strong><span>Adjust the agent filter or search query.</span>";
+    empty.innerHTML = "<strong>No matching skills.</strong><span>Adjust the search query.</span>";
     els.skillManagerList.append(empty);
     return;
   }
 
-  for (const { agent, skill } of visible) {
+  for (const skill of visible) {
+    const usage = skillUsage(skill, agents);
     const row = document.createElement("article");
     row.className = "skill-manager-row";
     row.innerHTML = `
-      <div class="skill-manager-agent">
-        <span class="avatar" style="background:${agent.color || "#2563eb"}">${initials(agent.name)}</span>
-        <span>
-          <strong>${escapeHTML(agent.name)}</strong>
-          <small>${escapeHTML(runtimeLabel(agent))}</small>
-        </span>
+      <div class="skill-manager-agent skill-manager-library-icon">
+        <span class="skill-badge">Sk</span>
+        <span><strong>Library skill</strong><small>${escapeHTML(usage)}</small></span>
       </div>
       <button class="skill-manager-copy" type="button">
         <strong>${escapeHTML(skill.name)}</strong>
@@ -1012,15 +1011,22 @@ function renderSkillManager(agents) {
         <button class="item-action visible" type="button" data-action="open">Open</button>
         <button class="item-delete visible" type="button" data-action="delete" aria-label="Delete skill ${escapeHTML(skill.name)}">x</button>
       </div>`;
-    row.querySelector("[data-action='open']").addEventListener("click", () => openSkillContent(agent, skill));
-    row.querySelector(".skill-manager-copy").addEventListener("click", () => openSkillContent(agent, skill));
-    row.querySelector("[data-action='delete']").addEventListener("click", () => deleteAgentSkill(agent, skill));
+    row.querySelector("[data-action='open']").addEventListener("click", () => openSkillContent(skill, usage));
+    row.querySelector(".skill-manager-copy").addEventListener("click", () => openSkillContent(skill, usage));
+    row.querySelector("[data-action='delete']").addEventListener("click", () => deleteGlobalSkill(skill));
     els.skillManagerList.append(row);
   }
 }
 
-function allAgentSkills(agents) {
-  return agents.flatMap((agent) => (agent.skills || []).map((skill) => ({ agent, skill })));
+function skillUsage(skill, agents) {
+  const users = agents.filter((agent) => agentHasSkill(agent, skill.id)).map((agent) => agent.name);
+  if (users.length === 0) return "Not attached";
+  if (users.length <= 2) return `Used by ${users.join(", ")}`;
+  return `Used by ${users.slice(0, 2).join(", ")} +${users.length - 2}`;
+}
+
+function agentHasSkill(agent, skillID) {
+  return (agent.skillIds || []).includes(skillID) || (agent.skills || []).some((skill) => skill.id === skillID);
 }
 
 function skillExcerpt(content = "") {
@@ -1028,38 +1034,38 @@ function skillExcerpt(content = "") {
   return compacted.slice(0, 180) || "No content preview.";
 }
 
-function openSkillContent(agent, skill) {
+function openSkillContent(skill, meta = "Library skill") {
   els.markdownDialogTitle.textContent = skill.name || "Imported skill";
-  els.markdownDialogMeta.textContent = `${agent.name} · ${skill.source || "manual import"} · ${runtimeLabel(agent)}`;
+  els.markdownDialogMeta.textContent = `${meta} · ${skill.source || "manual import"}`;
   els.markdownDialogBody.innerHTML = renderMarkdown(skill.content || "");
   els.markdownDialog.showModal();
 }
 
 function renderSkillDialog() {
-  const agents = state.snapshot?.agents || [];
-  const previous = state.skillAgentId;
-  els.skillTargetAgent.innerHTML = "";
-  for (const candidate of agents) {
-    const option = document.createElement("option");
-    option.value = candidate.id;
-    option.textContent = `${candidate.name} · ${runtimeLabel(candidate)}`;
-    els.skillTargetAgent.append(option);
+  if (state.skillDialogMode === "global") {
+    els.skillDialogTitle.textContent = "Create Skill";
+    els.skillAgentName.textContent = "Global skill library";
+    els.skillList.innerHTML = "";
+    els.skillList.hidden = true;
+    els.skillAttachRow.hidden = true;
+    document.querySelector("#skill-import").textContent = "Create";
+    return;
   }
-  if (previous && agents.some((candidate) => candidate.id === previous)) {
-    els.skillTargetAgent.value = previous;
-  } else {
-    state.skillAgentId = agents[0]?.id || "";
-    els.skillTargetAgent.value = state.skillAgentId;
-  }
+
   const agent = currentSkillAgent();
+  els.skillDialogTitle.textContent = "Manage Agent Skills";
   els.skillAgentName.textContent = agent ? `${agent.name} · ${runtimeLabel(agent)}` : "";
+  els.skillList.hidden = false;
+  els.skillAttachRow.hidden = false;
+  document.querySelector("#skill-import").textContent = "Create & Attach";
   els.skillList.innerHTML = "";
   if (!agent) return;
+  renderSkillAttachOptions(agent);
   const skills = agent.skills || [];
   if (skills.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "No imported skills yet.";
+    empty.textContent = "No skills attached yet.";
     els.skillList.append(empty);
     return;
   }
@@ -1072,12 +1078,31 @@ function renderSkillDialog() {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "item-delete visible";
-    deleteButton.title = `Delete skill ${skill.name}`;
-    deleteButton.setAttribute("aria-label", `Delete skill ${skill.name}`);
+    deleteButton.title = `Detach skill ${skill.name}`;
+    deleteButton.setAttribute("aria-label", `Detach skill ${skill.name}`);
     deleteButton.textContent = "x";
     deleteButton.addEventListener("click", () => deleteAgentSkill(agent, skill));
     row.append(copy, deleteButton);
     els.skillList.append(row);
+  }
+}
+
+function renderSkillAttachOptions(agent) {
+  const attached = new Set((agent.skills || []).map((skill) => skill.id));
+  const available = (state.snapshot?.skills || []).filter((skill) => !attached.has(skill.id));
+  els.skillAttachSelect.innerHTML = "";
+  for (const skill of available) {
+    const option = document.createElement("option");
+    option.value = skill.id;
+    option.textContent = `${skill.name} · ${skill.source || "manual import"}`;
+    els.skillAttachSelect.append(option);
+  }
+  els.skillAttach.disabled = available.length === 0;
+  if (available.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No unattached skills";
+    els.skillAttachSelect.append(option);
   }
 }
 
@@ -1087,11 +1112,24 @@ function currentSkillAgent() {
 }
 
 async function deleteAgentSkill(agent, skill) {
-  if (!window.confirm(`Delete skill ${skill.name} from ${agent.name}?`)) return;
+  if (!window.confirm(`Detach skill ${skill.name} from ${agent.name}? The skill remains in Skill Center.`)) return;
   try {
     await api(`/api/agents/${encodeURIComponent(agent.id)}/skills/${encodeURIComponent(skill.id)}`, { method: "DELETE" });
     state.snapshot = await api("/api/state");
     render();
+    if (els.skillDialog.open) renderSkillDialog();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteGlobalSkill(skill) {
+  if (!window.confirm(`Delete skill ${skill.name} from Skill Center? This also detaches it from every agent.`)) return;
+  try {
+    await api(`/api/skills/${encodeURIComponent(skill.id)}`, { method: "DELETE" });
+    state.snapshot = await api("/api/state");
+    render();
+    if (els.skillDialog.open) renderSkillDialog();
   } catch (error) {
     alert(error.message);
   }

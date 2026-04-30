@@ -69,15 +69,11 @@
           <div class="skill-manager-toolbar">
             <div>
               <strong id="skill-manager-count">0 skills</strong>
-              <span>Imported instructions across agents</span>
+              <span>Reusable workspace instructions</span>
             </div>
-            <button id="skill-manager-add" type="button">Import Skill</button>
+            <button id="skill-manager-add" type="button">Create Skill</button>
           </div>
           <div class="skill-manager-filters">
-            <label>
-              Agent
-              <select id="skill-agent-filter"></select>
-            </label>
             <label>
               Search
               <input id="skill-search" autocomplete="off" placeholder="Search skill name, source, content" />
@@ -188,13 +184,16 @@
 
     <dialog id="skill-dialog" class="skill-dialog">
       <form method="dialog" class="dialog-body">
-        <h2>Import Skill</h2>
+        <h2 id="skill-dialog-title">Import Skill</h2>
         <p id="skill-agent-name" class="muted"></p>
         <div id="skill-list" class="skill-list"></div>
-        <label>
-          Target agent
-          <select id="skill-target-agent"></select>
-        </label>
+        <div id="skill-attach-row" class="skill-attach-row">
+          <label>
+            Attach existing skill
+            <select id="skill-attach-select"></select>
+          </label>
+          <button id="skill-attach" type="button">Attach</button>
+        </div>
         <label>
           Skill name
           <input id="skill-name" autocomplete="off" placeholder="Review discipline" />

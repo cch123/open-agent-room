@@ -140,6 +140,68 @@ func TestAddAndDeleteAgentSkill(t *testing.T) {
 	}
 }
 
+func TestGlobalSkillCanAttachToMultipleAgents(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttachAgentSkill("agent_ada", skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttachAgentSkill("agent_lin", skill.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := st.Snapshot()
+	if len(snapshot.Skills) != 1 {
+		t.Fatalf("global skills = %d, want 1", len(snapshot.Skills))
+	}
+	for _, agentID := range []string{"agent_ada", "agent_lin"} {
+		var found bool
+		for _, agent := range snapshot.Agents {
+			if agent.ID == agentID && len(agent.Skills) == 1 && agent.Skills[0].ID == skill.ID {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("skill %s was not attached to %s", skill.ID, agentID)
+		}
+	}
+}
+
+func TestDeleteGlobalSkillDetachesFromAgents(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	skill, err := st.AddSkill("Review Discipline", "SKILL.md", "Lead with defects.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttachAgentSkill("agent_ada", skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DeleteSkill(skill.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := st.Snapshot()
+	if len(snapshot.Skills) != 0 {
+		t.Fatalf("global skill remained after delete: %+v", snapshot.Skills)
+	}
+	for _, agent := range snapshot.Agents {
+		if len(agent.Skills) != 0 {
+			t.Fatalf("deleted global skill remained attached to %s: %+v", agent.ID, agent.Skills)
+		}
+	}
+}
+
 func TestAddAgentStoresSystemPromptAndInitialSkills(t *testing.T) {
 	st, err := New(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {

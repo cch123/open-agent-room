@@ -56,8 +56,11 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 | `agent.ready` | Daemon to server | Confirm the agent runtime is available. |
 | `user.created` | Server | Record that a human participant was registered. |
 | `user.deleted` | Server | Record that a human participant was removed from the workspace roster. |
-| `agent.skill.imported` | Server | Record that a skill was attached to an agent. |
-| `agent.skill.deleted` | Server | Record that a skill was removed from an agent. |
+| `skill.created` | Server | Record that a reusable skill was added to the global skill library. |
+| `skill.deleted` | Server | Record that a reusable skill was removed from the global skill library and detached from agents. |
+| `agent.skill.attached` | Server | Record that a library skill was attached to an agent. |
+| `agent.skill.created_and_attached` | Server | Record that a new library skill was created from an agent flow and attached to that agent. |
+| `agent.skill.detached` | Server | Record that a skill was detached from an agent while remaining in the library. |
 | `agent.deleted` | Server | Record that an agent was removed from the workspace roster. |
 | `channel.deleted` | Server | Record that a channel and its messages were removed. |
 | `message.created` | Any to server | Append a visible message in a channel or DM. |
@@ -87,8 +90,9 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 15. Agent replies are visible messages and also become protocol events in the inspector.
 16. Each agent carries a `runtime` (`codex`, `claude`, or `demo`) and optional `model`; the daemon uses those fields when dispatching work.
 17. Each agent can carry a `systemPrompt`; the daemon includes it before task context for that agent only.
-18. Each agent can carry imported `skills`; the daemon includes those instructions in the runner request and prompt for that agent only.
-19. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
+18. Skills live in the global skill library; each agent carries `skillIds`, and snapshots hydrate the attached `skills` for daemon dispatch.
+19. The daemon includes only the hydrated skills attached to the invoked agent in the runner request and prompt.
+20. Long final Markdown documents should be wrapped in `<<<MARKDOWN_DOCUMENT>>>` and `<<<END_MARKDOWN_DOCUMENT>>>`; handoff notes and `@You` text belong outside those markers.
 
 ## Daemon Handshake
 
