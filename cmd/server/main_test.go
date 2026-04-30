@@ -239,7 +239,9 @@ func TestRecentUnhandledAgentMentionRoutesSkipsHandledReply(t *testing.T) {
 		ChannelID: "chan_general",
 		Text:      "@Lin can you validate this?",
 	}, "")
-	routedEnv := protocol.NewEnvelope("srv_local", "agent.message", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentMessagePayload{}, replyEnv.ID)
+	routedEnv := protocol.NewEnvelope("srv_local", "agent.message", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentMessagePayload{
+		Agent: protocol.Agent{ID: "agent_lin", Name: "Lin"},
+	}, replyEnv.ID)
 	state := protocol.State{
 		Channels: []protocol.Channel{{ID: "chan_general", Name: "general"}},
 		Agents: []protocol.Agent{
@@ -260,6 +262,43 @@ func TestRecentUnhandledAgentMentionRoutesSkipsHandledReply(t *testing.T) {
 	got := recentUnhandledAgentMentionRoutes(state, 30)
 	if len(got) != 0 {
 		t.Fatalf("handled reply should not backfill, got %v", got)
+	}
+}
+
+func TestRecentUnhandledAgentMentionRoutesBackfillsMissingTarget(t *testing.T) {
+	replyEnv := protocol.NewEnvelope("srv_local", "agent.reply", protocol.Actor{Kind: "agent", ID: "agent_fullstack", Name: "Fullstack Dev"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentReplyPayload{
+		AgentID:     "agent_fullstack",
+		ChannelID:   "chan_general",
+		Text:        "@QA 已确认。@架构师 请最终确认。",
+		ThreadDepth: 0,
+	}, "")
+	routedEnv := protocol.NewEnvelope("srv_local", "agent.message", protocol.Actor{Kind: "system", ID: "router"}, protocol.Scope{Kind: "channel", ID: "chan_general"}, protocol.AgentMessagePayload{
+		Agent: protocol.Agent{ID: "agent_qa", Name: "QA"},
+	}, replyEnv.ID)
+	state := protocol.State{
+		Channels: []protocol.Channel{{ID: "chan_general", Name: "general"}},
+		Agents: []protocol.Agent{
+			{ID: "agent_qa", Name: "QA"},
+			{ID: "agent_architect", Name: "架构师"},
+			{ID: "agent_fullstack", Name: "Fullstack Dev"},
+		},
+		Messages: []protocol.Message{{
+			ID:         "msg_1",
+			ChannelID:  "chan_general",
+			AuthorKind: "agent",
+			AuthorID:   "agent_fullstack",
+			Text:       "@QA 已确认。@架构师 请最终确认。",
+			ProtocolID: replyEnv.ID,
+		}},
+		Events: []protocol.Envelope{replyEnv, routedEnv},
+	}
+
+	got := recentUnhandledAgentMentionRoutes(state, 30)
+	if len(got) != 1 {
+		t.Fatalf("routes = %d, want 1", len(got))
+	}
+	if !reflect.DeepEqual(got[0].TargetIDs, []string{"agent_architect"}) {
+		t.Fatalf("targets = %v, want architect only", got[0].TargetIDs)
 	}
 }
 

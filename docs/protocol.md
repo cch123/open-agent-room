@@ -83,7 +83,7 @@ The protocol is a JSON event envelope shared by humans, agents, daemons, and the
 8. Messages that mention multiple agents are delivered to all mentioned agents with `peerAgents` populated for the other participants; the daemon prompt tells each runtime to explicitly `@` its peers.
 9. Agent replies that mention another agent are routed as the next agent-to-agent turn with `threadDepth + 1`, capped at 6 turns.
 10. If a multi-agent reply forgets both `@peer` and `@You`, the server falls back to the reply payload's `peerAgents` so the discussion does not silently stop.
-11. Agent replies are routed when they are appended; daemon reconnects do not replay historical agent replies.
+11. Agent replies are routed when they are appended; daemon reconnects only backfill recent per-target mentions that have no matching `agent.message` route yet.
 12. `@You` is a terminal handoff marker for human review, not an agent route target.
 13. `/assign <agent> <task>` creates a visible task message, sends `task.assigned`, and makes that agent active for the channel.
 14. If no daemon is connected, the server can use the built-in demo runtime so the app stays usable.

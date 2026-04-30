@@ -729,6 +729,7 @@ func (a *app) handleDaemon(w http.ResponseWriter, r *http.Request) {
 	for _, agent := range a.store.Snapshot().Agents {
 		a.spawnAgentOnClient(client, agent)
 	}
+	go a.routeRecentUnhandledAgentMentions(30)
 
 	for {
 		var env protocol.Envelope
@@ -940,11 +941,17 @@ func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []age
 		return nil
 	}
 
-	handledReplies := make(map[string]bool)
+	handledReplyTargets := make(map[string]map[string]bool)
 	replyDepths := make(map[string]int)
 	for _, env := range snapshot.Events {
 		if env.Type == "agent.message" && env.Trace.CausationID != "" {
-			handledReplies[env.Trace.CausationID] = true
+			payload, err := protocol.DecodePayload[protocol.AgentMessagePayload](env)
+			if err == nil && payload.Agent.ID != "" {
+				if handledReplyTargets[env.Trace.CausationID] == nil {
+					handledReplyTargets[env.Trace.CausationID] = make(map[string]bool)
+				}
+				handledReplyTargets[env.Trace.CausationID][payload.Agent.ID] = true
+			}
 			continue
 		}
 		if env.Type == "agent.reply" {
@@ -971,7 +978,7 @@ func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []age
 
 	var routes []agentMentionRoute
 	for _, msg := range snapshot.Messages[start:] {
-		if msg.AuthorKind != "agent" || msg.ProtocolID == "" || handledReplies[msg.ProtocolID] {
+		if msg.AuthorKind != "agent" || msg.ProtocolID == "" {
 			continue
 		}
 		threadDepth, ok := replyDepths[msg.ProtocolID]
@@ -992,6 +999,9 @@ func recentUnhandledAgentMentionRoutes(snapshot protocol.State, limit int) []age
 		targetAgents := make([]protocol.Agent, 0, len(mentionedTargetIDs))
 		targetIDs := make([]string, 0, len(mentionedTargetIDs))
 		for _, targetID := range mentionedTargetIDs {
+			if handledReplyTargets[msg.ProtocolID][targetID] {
+				continue
+			}
 			if target, ok := agents[targetID]; ok {
 				targetAgents = append(targetAgents, target)
 				targetIDs = append(targetIDs, target.ID)
